@@ -56,10 +56,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
     }
 }
 
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS thetichdiem (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        hang_the VARCHAR(50) NOT NULL,
+        ti_le_giam_gia DECIMAL(5,2) DEFAULT 0,
+        diem_toi_thieu INT DEFAULT 0
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $pdo->exec("INSERT IGNORE INTO thetichdiem (id, hang_the, ti_le_giam_gia, diem_toi_thieu) VALUES 
+        (1, 'Đồng', 0, 0),
+        (2, 'Bạc', 3, 200),
+        (3, 'Vàng', 5, 500),
+        (4, 'Kim Cương', 10, 1000)");
+
+    $pdo->exec("INSERT INTO khachhang (id, ho_ten, so_dien_thoai, thetichdiem_id, diem_tich_luy) VALUES 
+        (1, 'Nguyễn Phương Nam', '0905123456', 2, 350),
+        (2, 'Nguyễn Hoàng Đăng Khoa', '0905234567', 3, 620),
+        (3, 'Nguyễn Dương Bảo Phú', '0905345678', 4, 1250),
+        (4, 'Trần Thị Thu Thảo', '0905456789', 1, 80)
+        ON DUPLICATE KEY UPDATE 
+            ho_ten = VALUES(ho_ten), 
+            thetichdiem_id = VALUES(thetichdiem_id),
+            so_dien_thoai = VALUES(so_dien_thoai)");
+} catch (Exception $e) { }
+
 $sanpham_list = $pdo->query("SELECT sp.*, dm.ten_danh_muc FROM sanpham sp LEFT JOIN danhmuc dm ON sp.danhmuc_id = dm.id WHERE sp.trang_thai = 1 ORDER BY sp.id")->fetchAll();
 $cuahang_list = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id")->fetchAll();
 $nhanvien_list = $pdo->query("SELECT id, ho_ten FROM nhanvien ORDER BY id")->fetchAll();
-$khachhang_list = $pdo->query("SELECT kh.*, ttd.ti_le_giam_gia FROM khachhang kh LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id")->fetchAll();
+$khachhang_list = $pdo->query("SELECT kh.*, ttd.hang_the, ttd.ti_le_giam_gia FROM khachhang kh LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id ORDER BY kh.id ASC")->fetchAll();
 $khuyenmai_active = $pdo->prepare("SELECT * FROM khuyenmai WHERE thoi_gian_bat_dau <= ? AND thoi_gian_ket_thuc >= ? AND (so_luong IS NULL OR so_luong > 0)");
 $now = date('Y-m-d H:i:s'); $khuyenmai_active->execute([$now, $now]); $khuyenmai_list = $khuyenmai_active->fetchAll();
 
@@ -121,6 +146,12 @@ require ROOT_PATH . '/includes/header.php';
     .quick-cash-btn { border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 8px; padding: 6px 12px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.15s; }
     .quick-cash-btn:hover { background: #e2e8f0; }
     .receipt-paper { background: #fff; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 24px; font-family: 'Courier New', Courier, monospace; color: #0f172a; max-width: 400px; margin: 0 auto; }
+    .tier-badge { font-weight: 700; border-radius: 6px; padding: 3px 8px; font-size: 0.75rem; text-transform: uppercase; }
+    .tier-bac { background: #94a3b8; color: #fff; }
+    .tier-vang { background: #f59e0b; color: #fff; }
+    .tier-kimcuong { background: #06b6d4; color: #fff; }
+    .tier-dong { background: #b45309; color: #fff; }
+    .tier-none { background: #e2e8f0; color: #475569; }
     @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
     @media print { body * { visibility: hidden; } #printableReceipt, #printableReceipt * { visibility: visible; } #printableReceipt { position: absolute; left: 0; top: 0; width: 100%; border: none; } }
 </style>
@@ -143,18 +174,19 @@ require ROOT_PATH . '/includes/header.php';
             </div>
 
             <div class="d-flex flex-wrap gap-2 mb-3">
-                <div class="search-bar flex-grow-1"><i class="fa-solid fa-barcode s-ico"></i><input type="text" id="posSearchInput" placeholder="Quét mã vạch (F2) hoặc tìm tên..." autocomplete="off"></div>
+                <div class="search-bar flex-grow-1"><i class="fa-solid fa-barcode s-ico"></i><input type="text" id="posSearchInput" placeholder="Tìm tên món (Enter xem tất cả danh mục) hoặc quét mã F2..." autocomplete="off"></div>
                 <select class="form-select flex-shrink-0" id="posStoreSelect" style="width: auto; min-width: 230px; height: 44px; border-radius: 10px; font-weight: 500;">
                     <?php foreach($cuahang_list as $ch): ?><option value="<?=$ch['id']?>">🏪 <?=htmlspecialchars($ch['ten_cua_hang'])?></option><?php endforeach; ?>
                 </select>
                 <select class="form-select flex-shrink-0" id="posStaffSelect" style="width: auto; min-width: 220px; height: 44px; border-radius: 10px; font-weight: 500;">
-                    <?php foreach($nhanvien_list as $nv): ?><option value="<?=$nv['id']?>" <?=$nv['id']==3?'selected':''?>>👤 <?=htmlspecialchars($nv['ho_ten'])?></option><?php endforeach; ?>
+                    <?php foreach($nhanvien_list as $nv): ?><option value="<?=$nv['id']?>" <?=$nv['id']==1?'selected':''?>>👤 <?=htmlspecialchars($nv['ho_ten'])?></option><?php endforeach; ?>
                 </select>
             </div>
 
             <div class="row g-3 prod-grid-scroll" id="productGrid">
                 <?php foreach($sanpham_list as $sp): 
-                    $v = getVisual($sp['ten_san_pham'],$sp['ten_danh_muc'] ?? '', $sp['id']);$c = getCat($sp['ten_san_pham'],$sp['ten_danh_muc'] ?? '');
+                    $v = getVisual($sp['ten_san_pham'], $sp['ten_danh_muc'] ?? '', $sp['id']); 
+                    $c = getCat($sp['ten_san_pham'], $sp['ten_danh_muc'] ?? '');
                 ?>
                 <div class="col-6 col-md-4 col-lg-3 prod-item-col" data-cat="<?=$c?>" data-search="<?=mb_strtolower($sp['ma_san_pham'].' '.$sp['ten_san_pham'])?>">
                     <a href="javascript:void(0)" id="prod-<?=$sp['id']?>" onclick="addToCart(<?=$sp['id']?>,'<?=addslashes($sp['ten_san_pham'])?>',<?=$sp['gia_ban']?>)" class="prod-row text-decoration-none bg-white">
@@ -182,21 +214,49 @@ require ROOT_PATH . '/includes/header.php';
             </div>
 
             <div class="p-3 bg-light border rounded-3 mb-3">
-                <select class="form-select form-select-sm mb-2 border-0 fw-medium shadow-sm" id="posCustomerSelect" onchange="calcTotal()" style="height: 36px;">
-                    <option value="" data-disc="0">Khách lẻ (Vãng lai)</option>
-                    <?php foreach($khachhang_list as$kh): ?><option value="<?=$kh['id']?>" data-disc="<?=(float)($kh['ti_le_giam_gia']??0)?>"><?=$kh['ho_ten']?> - <?=$kh['so_dien_thoai']?></option><?php endforeach; ?>
-                </select>
+                <div class="input-group input-group-sm mb-2 shadow-sm">
+                    <span class="input-group-text bg-white border-end-0 text-muted"><i class="fa-solid fa-user-pen"></i></span>
+                    <input type="text" class="form-control border-start-0 fw-medium" id="posCustomerInput" placeholder="Nhập tên khách hàng (VD: Nguyễn Phương Nam)..." list="customerSuggestList" autocomplete="off" oninput="handleCustomerInput()">
+                    <datalist id="customerSuggestList">
+                        <option value="Khách lẻ (Vãng lai)"></option>
+                        <?php foreach($khachhang_list as $kh): 
+                            $tag = !empty($kh['hang_the']) ? '[' . $kh['hang_the'] . ']' : '[Đồng]';
+                        ?>
+                            <option value="<?= htmlspecialchars($kh['ho_ten']) ?>"><?= $tag ?> - SĐT: <?= htmlspecialchars($kh['so_dien_thoai'] ?? '') ?></option>
+                        <?php endforeach; ?>
+                    </datalist>
+                </div>
+
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <select class="form-select form-select-sm border-0 fw-medium shadow-sm flex-grow-1" id="posCustomerSelect" onchange="handleCustomerSelect()" style="height: 36px;">
+                        <option value="" data-name="Khách lẻ (Vãng lai)" data-disc="0" data-tier="none">Khách lẻ (Vãng lai)</option>
+                        <?php foreach($khachhang_list as $kh): 
+                            $tier = $kh['hang_the'] ?? 'Đồng';
+                            $disc = (float)($kh['ti_le_giam_gia'] ?? 0);
+                            $badgeLabel = '[' . $tier . ']';
+                        ?>
+                            <option value="<?=$kh['id']?>" 
+                                    data-name="<?=htmlspecialchars($kh['ho_ten'])?>" 
+                                    data-disc="<?=$disc?>" 
+                                    data-tier="<?=htmlspecialchars($tier)?>">
+                                <?= $badgeLabel ?> <?= htmlspecialchars($kh['ho_ten']) ?> (<?= htmlspecialchars($kh['so_dien_thoai'] ?? '') ?>) - Giảm <?=$disc?>%
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <span id="tierBadgeEl" class="tier-badge tier-none">Khách lẻ</span>
+                </div>
+
                 <select class="form-select form-select-sm border-0 text-danger fw-bold shadow-sm" id="posPromoSelect" onchange="calcTotal()" style="height: 36px;">
                     <option value="" data-val="0" data-type="">-- Áp dụng Voucher / Khuyến mãi --</option>
-                    <?php foreach($khuyenmai_list as$km): ?><option value="<?=$km['id']?>" data-val="<?=(float)$km['gia_tri']?>" data-type="<?=$km['loai_km']?>">[<?=$km['ma_voucher']?>] <?=$km['ten_km']?></option><?php endforeach; ?>
+                    <?php foreach($khuyenmai_list as $km): ?><option value="<?=$km['id']?>" data-val="<?=(float)$km['gia_tri']?>" data-type="<?=$km['loai_km']?>">[<?=$km['ma_voucher']?>] <?=$km['ten_km']?></option><?php endforeach; ?>
                 </select>
             </div>
 
-            <div id="cartBox" class="flex-grow-1" style="min-height: 200px; max-height: calc(100vh - 460px); overflow-y: auto; padding-right: 5px;"></div>
+            <div id="cartBox" class="flex-grow-1" style="min-height: 200px; max-height: calc(100vh - 490px); overflow-y: auto; padding-right: 5px;"></div>
 
             <div class="mt-auto pt-3 border-top">
                 <div class="d-flex justify-content-between mb-2 small text-muted"><span class="fw-medium">Tạm tính</span><span class="num-font fw-bold text-dark" id="lSub">0 ₫</span></div>
-                <div class="d-flex justify-content-between mb-2 small text-success"><span class="fw-medium">Khuyến mãi</span><span class="num-font fw-bold" id="lDisc">- 0 ₫</span></div>
+                <div class="d-flex justify-content-between mb-2 small text-success"><span class="fw-medium">Khuyến mãi & Thành viên</span><span class="num-font fw-bold" id="lDisc">- 0 ₫</span></div>
                 <div class="d-flex justify-content-between mb-2 small text-muted"><span class="fw-medium">VAT (8%)</span><span class="num-font fw-bold text-dark" id="lVat">0 ₫</span></div>
                 <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top"><span class="fw-bold fs-6">TỔNG CỘNG</span><span class="num-font fw-bold" style="font-size: 1.75rem; color: var(--ck-red);" id="lTotal">0 ₫</span></div>
                 
@@ -253,6 +313,10 @@ require ROOT_PATH . '/includes/header.php';
                             <div class="fw-medium mt-1" id="rStore"></div>
                             <div class="small text-muted mt-1" id="rTime"></div>
                             <div class="fw-bold mt-2 border border-dark rounded d-inline-block px-3 py-1" id="rCode"></div>
+                        </div>
+                        <div class="small border-bottom pb-2 mb-2">
+                            <div class="d-flex justify-content-between"><span>Khách hàng:</span><span id="rCust">Khách lẻ</span></div>
+                            <div class="d-flex justify-content-between"><span>Thu ngân:</span><span id="rStaff">Thu ngân</span></div>
                         </div>
                         <div id="rItems" class="small border-bottom pb-3 mb-3"></div>
                         <div class="small fw-medium">
@@ -316,29 +380,118 @@ require ROOT_PATH . '/includes/header.php';
         let s = 0; cart.forEach(i => s += i.price * i.qty); let d = 0;
         const p = document.getElementById('posPromoSelect').options[document.getElementById('posPromoSelect').selectedIndex];
         if(p && p.value && s>0) d += (p.dataset.type === 'Phần trăm') ? s*(parseFloat(p.dataset.val)/100) : parseFloat(p.dataset.val);
+        
         const c = document.getElementById('posCustomerSelect').options[document.getElementById('posCustomerSelect').selectedIndex];
         if(c && c.value && s>0) d += s*(parseFloat(c.dataset.disc)/100);
+        
         if(d > s) d = s; let v = Math.round((s - d) * 0.08); let t = s - d + v;
         calc = {s, d, v, t};
         document.getElementById('lSub').textContent = fVND(s); document.getElementById('lDisc').textContent = '-'+fVND(d);
         document.getElementById('lVat').textContent = fVND(v); document.getElementById('lTotal').textContent = fVND(t);
     }
-    
-    document.querySelectorAll('.seg-btn').forEach(b => b.onclick = function(){
-        document.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('active')); this.classList.add('active'); fProd();
-    });
-    document.getElementById('posSearchInput').oninput = fProd;
-    document.addEventListener('keydown', e => { if(e.key==='F2') { e.preventDefault(); document.getElementById('posSearchInput').focus(); } });
-    document.getElementById('posSearchInput').onkeydown = function(e) {
-        if(e.key==='Enter') { e.preventDefault(); const vc = Array.from(document.querySelectorAll('.prod-item-col')).filter(c=>c.style.display!=='none'); if(vc.length>0) vc[0].querySelector('.prod-row').click(); this.value=''; fProd(); }
-    };
-    function fProd() {
-        const k = document.getElementById('posSearchInput').value.toLowerCase().trim(), cat = document.querySelector('.seg-btn.active').dataset.cat;
+
+    function updateTierBadge(tierName) {
+        const badge = document.getElementById('tierBadgeEl');
+        badge.className = 'tier-badge';
+        const cleanTier = (tierName || '').toLowerCase().trim();
+        if (cleanTier.includes('bạc')) {
+            badge.classList.add('tier-bac');
+            badge.textContent = '[Bạc]';
+        } else if (cleanTier.includes('vàng')) {
+            badge.classList.add('tier-vang');
+            badge.textContent = '[Vàng]';
+        } else if (cleanTier.includes('kim cương')) {
+            badge.classList.add('tier-kimcuong');
+            badge.textContent = '[Kim Cương]';
+        } else if (cleanTier.includes('đồng')) {
+            badge.classList.add('tier-dong');
+            badge.textContent = '[Đồng]';
+        } else {
+            badge.classList.add('tier-none');
+            badge.textContent = 'Khách lẻ';
+        }
+    }
+
+    function handleCustomerSelect() {
+        const sel = document.getElementById('posCustomerSelect');
+        const opt = sel.options[sel.selectedIndex];
+        document.getElementById('posCustomerInput').value = opt.dataset.name || '';
+        updateTierBadge(opt.dataset.tier || '');
+        calcTotal();
+    }
+
+    function handleCustomerInput() {
+        const val = document.getElementById('posCustomerInput').value.toLowerCase().trim();
+        const sel = document.getElementById('posCustomerSelect');
+        let matched = false;
+
+        for (let i = 0; i < sel.options.length; i++) {
+            const opt = sel.options[i];
+            const name = (opt.dataset.name || '').toLowerCase();
+            if (val !== '' && name.includes(val)) {
+                sel.selectedIndex = i;
+                updateTierBadge(opt.dataset.tier || '');
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            sel.selectedIndex = 0;
+            updateTierBadge('none');
+        }
+        calcTotal();
+    }
+
+    function triggerSearch(kw, forceAllCat = false) {
+        if (forceAllCat) {
+            document.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('active'));
+            const allBtn = document.querySelector('.seg-btn[data-cat="Tất cả"]');
+            if (allBtn) allBtn.classList.add('active');
+        }
+        const activeCat = document.querySelector('.seg-btn.active').dataset.cat;
+        const cleanKw = kw.toLowerCase().trim();
+
         document.querySelectorAll('.prod-item-col').forEach(c => {
-            const mC = cat==='Tất cả' || c.dataset.cat===cat, mK = c.dataset.search.includes(k);
-            c.style.display = (mC && mK) ? '' : 'none';
+            const matchCat = (activeCat === 'Tất cả' || c.dataset.cat === activeCat);
+            const matchKw  = c.dataset.search.includes(cleanKw);
+            c.style.display = (matchCat && matchKw) ? '' : 'none';
         });
     }
+
+    document.querySelectorAll('.seg-btn').forEach(b => b.onclick = function(){
+        document.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('active'));
+        this.classList.add('active');
+        triggerSearch(document.getElementById('posSearchInput').value, false);
+    });
+
+    const posInput = document.getElementById('posSearchInput');
+    posInput.oninput = function() { triggerSearch(this.value, false); };
+    posInput.onkeydown = function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            triggerSearch(this.value, true);
+        }
+    };
+
+    const headerSearch = document.querySelector('header input[type="text"], input[placeholder*="Tìm hóa đơn"]');
+    if (headerSearch) {
+        headerSearch.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                posInput.value = this.value;
+                triggerSearch(this.value, true);
+                posInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        });
+    }
+
+    document.addEventListener('keydown', e => { 
+        if (e.key === 'F2') { 
+            e.preventDefault(); 
+            posInput.focus(); 
+            posInput.select();
+        } 
+    });
 
     function openPay() {
         if(cart.length===0) return alert('Vui lòng chọn sản phẩm vào giỏ!');
@@ -370,13 +523,27 @@ require ROOT_PATH . '/includes/header.php';
             if(d.success) {
                 const st = document.getElementById('posStoreSelect');
                 document.getElementById('rStore').textContent = st.options[st.selectedIndex].text.replace('🏪 ','');
-                document.getElementById('rTime').textContent = d.created_at; document.getElementById('rCode').textContent = d.order_code;
+                document.getElementById('rTime').textContent = d.created_at; 
+                document.getElementById('rCode').textContent = d.order_code;
+                
+                const cSelect = document.getElementById('posCustomerSelect');
+                const cOpt = cSelect.options[cSelect.selectedIndex];
+                document.getElementById('rCust').textContent = (cOpt.dataset.tier && cOpt.dataset.tier !== 'none') ? `[${cOpt.dataset.tier}] ${cOpt.dataset.name}` : (cOpt.dataset.name || 'Khách lẻ');
+                
+                const sSelect = document.getElementById('posStaffSelect');
+                document.getElementById('rStaff').textContent = sSelect.options[sSelect.selectedIndex].text.replace('👤 ','');
+
                 let h = ''; cart.forEach(i => h += `<div class="d-flex justify-content-between mb-1"><span>${i.name} (x${i.qty})</span><span>${fVND(i.price*i.qty)}</span></div>`);
-                document.getElementById('rItems').innerHTML = h; document.getElementById('rSub').textContent = fVND(calc.s);
-                document.getElementById('rDisc').textContent = '-'+fVND(calc.d); document.getElementById('rVat').textContent = fVND(calc.v);
-                document.getElementById('rTotal').textContent = fVND(calc.t); document.getElementById('rMeth').textContent = meth;
-                document.getElementById('stepPay').style.display = 'none'; document.getElementById('stepRcp').style.display = '';
-                document.getElementById('fPay').style.display = 'none'; document.getElementById('fRcp').style.display = '';
+                document.getElementById('rItems').innerHTML = h; 
+                document.getElementById('rSub').textContent = fVND(calc.s);
+                document.getElementById('rDisc').textContent = '-'+fVND(calc.d); 
+                document.getElementById('rVat').textContent = fVND(calc.v);
+                document.getElementById('rTotal').textContent = fVND(calc.t); 
+                document.getElementById('rMeth').textContent = meth;
+                document.getElementById('stepPay').style.display = 'none'; 
+                document.getElementById('stepRcp').style.display = '';
+                document.getElementById('fPay').style.display = 'none'; 
+                document.getElementById('fRcp').style.display = '';
             } else { alert(d.message); b.disabled=false; b.innerHTML='<i class="fa-solid fa-check me-2"></i>Hoàn tất'; }
         });
     }
