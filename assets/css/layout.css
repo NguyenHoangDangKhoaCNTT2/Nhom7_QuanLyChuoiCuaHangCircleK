@@ -1,0 +1,260 @@
+/* layout.css — KHUNG TRANG: Sidebar + Top navbar + vùng nội dung — cắt nguyên văn từ circle_k_dashboard.php. File dùng chung, không sửa riêng lẻ. */
+
+/* ================= SIDEBAR ================= */
+#sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0;
+    width: var(--sidebar-w);
+    padding: 24px 18px;
+    display: flex; flex-direction: column;
+    background: var(--sidebar-bg);
+    background-image: 
+        radial-gradient(circle at 10% 0%, rgba(225, 29, 72, 0.18), transparent 45%),
+        radial-gradient(circle at 90% 100%, rgba(255, 94, 58, 0.12), transparent 45%);
+    color: #f8fafc;
+    z-index: 1040;
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+#sidebar.collapsed { transform: translateX(-100%); }
+
+.brand-box {
+    display: flex; align-items: center; gap: 14px;
+    padding: 6px 10px 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 20px;
+}
+
+.brand-icon {
+    width: 46px; height: 46px; border-radius: 14px;
+    display: grid; place-items: center;
+    font-size: 1.35rem; font-weight: 800; color: #fff;
+    background: linear-gradient(135deg, var(--ck-red), var(--ck-orange));
+    box-shadow: 0 8px 20px -4px rgba(225, 29, 72, 0.55);
+    position: relative;
+}
+
+.brand-icon::after {
+    content: ''; position: absolute; inset: 1px;
+    border-radius: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    pointer-events: none;
+}
+
+.brand-name {
+    font-weight: 800; font-size: 1.35rem; letter-spacing: 0.5px;
+    line-height: 1.1; color: #fff;
+}
+
+.brand-sub {
+    font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 1.2px; color: #fb7185; margin-top: 3px;
+}
+
+.menu-label {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.2px; color: #475569;
+    padding: 0 14px; margin-bottom: 10px;
+}
+
+.menu-list { list-style: none; padding: 0; margin: 0; }
+
+.nav-item-ck { margin-bottom: 6px; }
+
+.nav-link-ck {
+    --item-color: #94a3b8;
+    display: flex; align-items: center; gap: 13px;
+    padding: 11px 14px; border-radius: 14px;
+    color: #94a3b8; text-decoration: none;
+    font-weight: 500; font-size: 0.92rem;
+    transition: all 0.25s ease;
+    position: relative;
+}
+
+.nav-link-ck .nav-ico {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: grid; place-items: center; font-size: 1rem;
+    color: var(--item-color);
+    background: rgba(255, 255, 255, 0.04);
+    transition: all 0.25s ease;
+}
+
+.nav-link-ck:hover {
+    color: #f8fafc;
+    background: rgba(255, 255, 255, 0.06);
+    transform: translateX(3px);
+}
+
+.nav-link-ck:hover .nav-ico {
+    background: color-mix(in srgb, var(--item-color) 20%, transparent);
+    transform: scale(1.05);
+}
+
+.nav-link-ck.active {
+    color: #fff; font-weight: 600;
+    background: linear-gradient(115deg, var(--ck-red) 0%, var(--ck-orange) 100%);
+    box-shadow: 0 10px 25px -5px rgba(225, 29, 72, 0.45);
+}
+
+.nav-link-ck.active .nav-ico {
+    color: #fff; background: rgba(255, 255, 255, 0.2);
+}
+
+.nav-badge {
+    margin-left: auto; padding: 3px 9px; border-radius: 99px;
+    font-size: 0.68rem; font-weight: 700;
+    background: rgba(255, 255, 255, 0.12); color: #fff;
+}
+
+.nav-link-ck.active .nav-badge {
+    background: #fff; color: var(--ck-red);
+}
+
+.sidebar-footer {
+    margin-top: auto;
+    padding: 16px; border-radius: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sys-status {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 0.8rem; color: #cbd5e1; margin-bottom: 12px;
+}
+
+.btn-logout {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; padding: 10px; border-radius: 11px;
+    font-size: 0.86rem; font-weight: 600;
+    color: #fda4af; background: rgba(225, 29, 72, 0.12);
+    border: 1px solid rgba(225, 29, 72, 0.25);
+    text-decoration: none; transition: all 0.2s ease;
+}
+
+.btn-logout:hover {
+    background: var(--ck-red); color: #fff;
+}
+
+.backdrop-ck {
+    display: none; position: fixed; inset: 0; z-index: 1030;
+    background: rgba(11, 15, 25, 0.65); backdrop-filter: blur(4px);
+}
+
+/* ================= MAIN WRAPPER & NAVBAR ================= */
+#content-wrapper {
+    margin-left: var(--sidebar-w);
+    transition: margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+}
+
+#content-wrapper.expanded { margin-left: 0; }
+
+.top-navbar {
+    position: sticky; top: 0; z-index: 1020;
+    padding: 14px 28px;
+    display: flex; align-items: center; gap: 16px;
+    background: rgba(244, 247, 254, 0.82);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.btn-toggle-nav {
+    width: 42px; height: 42px; border-radius: 12px; border: 1px solid var(--border-light);
+    background: var(--surface); color: var(--ink-700);
+    display: grid; place-items: center; font-size: 1.05rem;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+    transition: all 0.2s ease;
+}
+
+.btn-toggle-nav:hover {
+    color: var(--ck-red); border-color: #fecdd3; background: #fff1f2;
+}
+
+.search-bar {
+    position: relative; max-width: 340px; width: 100%;
+}
+
+.search-bar input {
+    width: 100%; padding: 9px 70px 9px 38px;
+    border-radius: 12px; border: 1px solid var(--border-light);
+    background: var(--surface); font-size: 0.88rem; color: var(--ink-900);
+    transition: all 0.2s ease;
+}
+
+.search-bar input:focus {
+    outline: none; border-color: var(--ck-red);
+    box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.1);
+}
+
+.search-bar .s-ico {
+    position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+    color: var(--ink-400); font-size: 0.88rem;
+}
+
+.search-bar .kbd-shortcut {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    padding: 2px 7px; border-radius: 6px; font-size: 0.7rem; font-weight: 700;
+    background: var(--border-subtle); color: var(--ink-500);
+    border: 1px solid var(--border-light);
+}
+
+.date-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 15px; border-radius: 12px;
+    background: var(--surface); border: 1px solid var(--border-light);
+    font-size: 0.83rem; font-weight: 600; color: var(--ink-700);
+    box-shadow: 0 2px 5px rgba(15, 23, 42, 0.02);
+}
+
+.action-icon-btn {
+    position: relative; width: 42px; height: 42px; border-radius: 12px;
+    background: var(--surface); border: 1px solid var(--border-light);
+    display: grid; place-items: center; color: var(--ink-700);
+    font-size: 1.1rem; text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.action-icon-btn:hover {
+    border-color: #cbd5e1; transform: translateY(-1px); color: var(--ink-900);
+}
+
+.notif-badge {
+    position: absolute; top: -5px; right: -5px;
+    min-width: 20px; height: 20px; padding: 0 5px; border-radius: 99px;
+    background: var(--ck-red); color: #fff; font-size: 0.68rem; font-weight: 700;
+    display: grid; place-items: center; border: 2px solid var(--bg-canvas);
+}
+
+.user-pill {
+    display: flex; align-items: center; gap: 11px;
+    padding: 5px 12px 5px 6px; border-radius: 99px;
+    background: var(--surface); border: 1px solid var(--border-light);
+    text-decoration: none; color: var(--ink-900);
+    transition: all 0.2s ease;
+}
+
+.user-pill:hover { border-color: #cbd5e1; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05); }
+
+.user-avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-weight: 800; font-size: 0.95rem; color: #fff;
+    background: linear-gradient(135deg, var(--ck-red), var(--ck-orange));
+}
+
+.dropdown-menu-modern {
+    border: 1px solid var(--border-light);
+    border-radius: 16px; padding: 10px;
+    box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.15);
+}
+
+@media (max-width: 991.98px) {
+    #content-wrapper { margin-left: 0; }
+    #sidebar { transform: translateX(-100%); }
+    #sidebar.open { transform: translateX(0); }
+    .backdrop-ck.show { display: block; }
+    .top-navbar { padding: 12px 16px; }
+}
+

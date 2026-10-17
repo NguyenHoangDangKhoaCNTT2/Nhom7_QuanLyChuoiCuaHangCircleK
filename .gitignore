@@ -1,0 +1,12 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# Cấu hình & dữ liệu nhạy cảm — KHÔNG đẩy lên git
+.env
+config.local.php
+*.sqlite
+*.sql.bak
