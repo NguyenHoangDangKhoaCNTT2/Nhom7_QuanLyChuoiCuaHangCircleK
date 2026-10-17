@@ -29,7 +29,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
         $tien_giam_gia  = (float)($_POST['tien_giam_gia'] ?? 0);
         $khach_phai_tra = (float)($_POST['khach_phai_tra'] ?? 0);
 
-        if (empty($cart)) { echo json_encode(['success' => false, 'message' => 'Giỏ hàng trống!']); exit; }
+        if (empty($cart)) { 
+            echo json_encode(['success' => false, 'message' => 'Giỏ hàng trống!']); 
+            exit; 
+        }
 
         $pdo->beginTransaction();
         $stmtHd = $pdo->prepare("INSERT INTO hoadon (cuahang_id, nhanvien_id, khachhang_id, khuyenmai_id, ngay_tao, tong_tien, tien_giam_gia, khach_phai_tra, trang_thai) VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, 'Hoàn thành')");
@@ -45,14 +48,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
         }
 
         $pdo->prepare("INSERT INTO thanhtoan (hoadon_id, phuong_thuc, so_tien_thanh_toan, thoi_gian_thanh_toan) VALUES (?, ?, ?, NOW())")->execute([$hoadon_id, $phuong_thuc, $khach_phai_tra]);
-        if ($khuyenmai_id) $pdo->prepare("UPDATE khuyenmai SET so_luong = so_luong - 1 WHERE id = ? AND so_luong IS NOT NULL AND so_luong > 0")->execute([$khuyenmai_id]);
-        if ($khachhang_id) $pdo->prepare("UPDATE khachhang SET diem_tich_luy = diem_tich_luy + ? WHERE id = ?")->execute([(int)floor($khach_phai_tra / 1000), $khachhang_id]);
+        if ($khuyenmai_id) {
+            $pdo->prepare("UPDATE khuyenmai SET so_luong = so_luong - 1 WHERE id = ? AND so_luong IS NOT NULL AND so_luong > 0")->execute([$khuyenmai_id]);
+        }
+        if ($khachhang_id) {
+            $pdo->prepare("UPDATE khachhang SET diem_tich_luy = diem_tich_luy + ? WHERE id = ?")->execute([(int)floor($khach_phai_tra / 1000), $khachhang_id]);
+        }
         
         $pdo->commit();
-        echo json_encode(['success' => true, 'order_code' => '#HD' . (1024 + $hoadon_id), 'created_at' => date('d/m/Y H:i:s')]); exit;
+        echo json_encode(['success' => true, 'order_code' => '#HD' . (1024 + $hoadon_id), 'created_at' => date('d/m/Y H:i:s')]); 
+        exit;
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]); exit;
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]); 
+        exit;
     }
 }
 
@@ -86,7 +95,9 @@ $cuahang_list = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_th
 $nhanvien_list = $pdo->query("SELECT id, ho_ten FROM nhanvien ORDER BY id")->fetchAll();
 $khachhang_list = $pdo->query("SELECT kh.*, ttd.hang_the, ttd.ti_le_giam_gia FROM khachhang kh LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id ORDER BY kh.id ASC")->fetchAll();
 $khuyenmai_active = $pdo->prepare("SELECT * FROM khuyenmai WHERE thoi_gian_bat_dau <= ? AND thoi_gian_ket_thuc >= ? AND (so_luong IS NULL OR so_luong > 0)");
-$now = date('Y-m-d H:i:s'); $khuyenmai_active->execute([$now, $now]); $khuyenmai_list = $khuyenmai_active->fetchAll();
+$now = date('Y-m-d H:i:s'); 
+$khuyenmai_active->execute([$now, $now]); 
+$khuyenmai_list = $khuyenmai_active->fetchAll();
 
 $nextId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) + 1 FROM hoadon")->fetchColumn();
 $nextHdCode = '#HD' . (1024 + $nextId);
@@ -117,7 +128,8 @@ function getCat($n, $c) {
     return 'Đồ ăn';
 }
 
-$pageTitle = 'Màn hình bán hàng (POS)'; $activeMenu = 'pos';
+$pageTitle = 'Màn hình bán hàng (POS)'; 
+$activeMenu = 'pos';
 require ROOT_PATH . '/includes/header.php';
 ?>
 
@@ -261,7 +273,7 @@ require ROOT_PATH . '/includes/header.php';
                 <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top"><span class="fw-bold fs-6">TỔNG CỘNG</span><span class="num-font fw-bold" style="font-size: 1.75rem; color: var(--ck-red);" id="lTotal">0 ₫</span></div>
                 
                 <button class="btn-ck btn-ck-primary w-100 mt-3 py-2 fs-6" onclick="openPay()"><i class="fa-solid fa-credit-card me-2"></i>Thanh toán</button>
-                <button class="btn-ck btn-ck-soft w-100 mt-2" onclick="if(confirm('Bạn có chắc muốn hủy đơn hàng này?')){cart=[]; drawCart();}">Hủy đơn</button>
+                <button class="btn-ck btn-ck-soft w-100 mt-2" onclick="clearCartConfirm()">Hủy đơn</button>
             </div>
         </div>
     </div>
@@ -290,14 +302,17 @@ require ROOT_PATH . '/includes/header.php';
                     <div id="cashArea">
                         <label class="small fw-bold text-muted mb-2">TIỀN KHÁCH ĐƯA</label>
                         <input type="number" class="form-control form-control-lg num-font fw-bold mb-2" id="cCash" oninput="cChange()" placeholder="Nhập số tiền...">
-                        <div class="d-flex flex-wrap gap-2 mb-4">
+                        <div class="d-flex flex-wrap gap-2 mb-3">
                             <button class="quick-cash-btn" onclick="document.getElementById('cCash').value=calc.t; cChange()">Đủ tiền</button>
                             <button class="quick-cash-btn" onclick="document.getElementById('cCash').value=50000; cChange()">50,000</button>
                             <button class="quick-cash-btn" onclick="document.getElementById('cCash').value=100000; cChange()">100,000</button>
                             <button class="quick-cash-btn" onclick="document.getElementById('cCash').value=200000; cChange()">200,000</button>
                             <button class="quick-cash-btn" onclick="document.getElementById('cCash').value=500000; cChange()">500,000</button>
                         </div>
-                        <div class="d-flex justify-content-between align-items-center pt-3 border-top"><span class="fw-semibold text-muted">Tiền thừa trả khách:</span><span id="cChangeTxt" class="num-font text-primary fw-bold fs-4">0 ₫</span></div>
+                        <div class="d-flex justify-content-between align-items-center pt-3 border-top">
+                            <span class="fw-semibold text-muted" id="cChangeLabel">Tiền thừa trả khách:</span>
+                            <span id="cChangeTxt" class="num-font text-primary fw-bold fs-4">0 ₫</span>
+                        </div>
                     </div>
                     
                     <div id="qrArea" class="text-center py-4" style="display:none;">
@@ -325,6 +340,11 @@ require ROOT_PATH . '/includes/header.php';
                             <div class="d-flex justify-content-between mb-2"><span>VAT (8%):</span><span id="rVat">0 ₫</span></div>
                             <div class="d-flex justify-content-between fw-bold fs-6 pt-2 border-top mt-2"><span>TỔNG CỘNG:</span><span id="rTotal">0 ₫</span></div>
                             <div class="d-flex justify-content-between mt-2 pt-2 border-top text-muted"><span>Phương thức:</span><span id="rMeth">Tiền mặt</span></div>
+                            
+                            <div id="rCashRows" class="border-top mt-2 pt-2">
+                                <div class="d-flex justify-content-between mb-1"><span>Tiền khách đưa:</span><span class="num-font fw-bold" id="rGiven">0 ₫</span></div>
+                                <div class="d-flex justify-content-between"><span>Tiền thừa:</span><span class="num-font fw-bold text-primary" id="rChange">0 ₫</span></div>
+                            </div>
                         </div>
                         <div class="text-center small text-muted mt-4">Cảm ơn quý khách & Hẹn gặp lại!</div>
                     </div>
@@ -336,20 +356,21 @@ require ROOT_PATH . '/includes/header.php';
             </div>
             <div class="modal-footer border-0 pt-0" id="fRcp" style="display:none;">
                 <button class="btn-ck btn-ck-soft" onclick="window.print()"><i class="fa-solid fa-print me-2"></i>In HĐ</button>
-                <button class="btn-ck btn-ck-primary px-4" onclick="location.reload()"><i class="fa-solid fa-plus me-2"></i>Đơn mới</button>
+                <button class="btn-ck btn-ck-primary px-4" onclick="resetNewCustomer()"><i class="fa-solid fa-plus me-2"></i>Đơn mới</button>
             </div>
         </div>
     </div>
 </div>
 
 <script>
-    let cart = [{ id: 2, name: 'Cà phê sữa đá Circle K', price: 20000, qty: 2 }, { id: 3, name: 'Mì trộn xúc xích trứng', price: 35000, qty: 1 }];
+    let cart = [];
     let meth = 'Tiền mặt', calc = {s:0, d:0, v:0, t:0};
     const fVND = n => Math.round(n).toLocaleString() + ' ₫';
     const beep = () => { try { const x=new (window.AudioContext||window.webkitAudioContext)(), o=x.createOscillator(), g=x.createGain(); o.type='sine'; o.frequency.value=880; g.gain.value=0.05; o.connect(g); g.connect(x.destination); o.start(); o.stop(x.currentTime+0.05); } catch(e){} };
 
     function addToCart(id, name, price) {
-        beep(); const ex = cart.find(i => i.id === id);
+        beep(); 
+        const ex = cart.find(i => i.id === id);
         if (ex) ex.qty++; else cart.push({id, name, price, qty:1});
         drawCart();
     }
@@ -374,7 +395,8 @@ require ROOT_PATH . '/includes/header.php';
                 if(cEl && bEl){ cEl.classList.add('in-cart'); bEl.textContent = i.qty; bEl.style.display = 'flex'; }
             });
         }
-        document.getElementById('cartBox').innerHTML = h; calcTotal();
+        document.getElementById('cartBox').innerHTML = h; 
+        calcTotal();
     }
     function calcTotal() {
         let s = 0; cart.forEach(i => s += i.price * i.qty); let d = 0;
@@ -384,10 +406,14 @@ require ROOT_PATH . '/includes/header.php';
         const c = document.getElementById('posCustomerSelect').options[document.getElementById('posCustomerSelect').selectedIndex];
         if(c && c.value && s>0) d += s*(parseFloat(c.dataset.disc)/100);
         
-        if(d > s) d = s; let v = Math.round((s - d) * 0.08); let t = s - d + v;
+        if(d > s) d = s; 
+        let v = Math.round((s - d) * 0.08); 
+        let t = s - d + v;
         calc = {s, d, v, t};
-        document.getElementById('lSub').textContent = fVND(s); document.getElementById('lDisc').textContent = '-'+fVND(d);
-        document.getElementById('lVat').textContent = fVND(v); document.getElementById('lTotal').textContent = fVND(t);
+        document.getElementById('lSub').textContent = fVND(s); 
+        document.getElementById('lDisc').textContent = '-'+fVND(d);
+        document.getElementById('lVat').textContent = fVND(v); 
+        document.getElementById('lTotal').textContent = fVND(t);
     }
 
     function updateTierBadge(tierName) {
@@ -496,28 +522,59 @@ require ROOT_PATH . '/includes/header.php';
     function openPay() {
         if(cart.length===0) return alert('Vui lòng chọn sản phẩm vào giỏ!');
         document.getElementById('mTotal').textContent = fVND(calc.t);
-        document.getElementById('cCash').value = calc.t; cChange();
+        document.getElementById('cCash').value = calc.t; 
+        cChange();
         new bootstrap.Modal(document.getElementById('mdlPay')).show();
     }
+    
     function setMeth(m, el) {
-        meth = m; document.querySelectorAll('.pay-method-card').forEach(c => c.classList.remove('active')); el.classList.add('active');
+        meth = m; 
+        document.querySelectorAll('.pay-method-card').forEach(c => c.classList.remove('active')); 
+        el.classList.add('active');
         document.getElementById('cashArea').style.display = (m==='Tiền mặt') ? '' : 'none';
         document.getElementById('qrArea').style.display = (m==='Tiền mặt') ? 'none' : '';
+        cChange();
     }
+
     function cChange() {
-        const c = parseFloat(document.getElementById('cCash').value)||0, ch = Math.max(0, c - calc.t);
-        document.getElementById('cChangeTxt').textContent = fVND(ch);
+        const btn = document.getElementById('btnSbm');
+        if (meth !== 'Tiền mặt') {
+            btn.disabled = false;
+            return;
+        }
+        const c = parseFloat(document.getElementById('cCash').value) || 0;
+        const diff = c - calc.t;
+        const lbl = document.getElementById('cChangeLabel');
+        const txt = document.getElementById('cChangeTxt');
+
+        if (diff < 0) {
+            lbl.textContent = 'Còn thiếu:';
+            txt.className = 'num-font text-danger fw-bold fs-4';
+            txt.textContent = fVND(Math.abs(diff));
+            btn.disabled = true;
+        } else {
+            lbl.textContent = 'Tiền thừa trả khách:';
+            txt.className = 'num-font text-primary fw-bold fs-4';
+            txt.textContent = fVND(diff);
+            btn.disabled = false;
+        }
     }
+
     function sbmPay() {
-        const b = document.getElementById('btnSbm'); b.disabled = true; b.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang lưu...';
+        const b = document.getElementById('btnSbm'); 
+        b.disabled = true; 
+        b.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang lưu...';
         const fd = new FormData();
-        fd.append('pos_action','checkout'); fd.append('cart',JSON.stringify(cart));
+        fd.append('pos_action','checkout'); 
+        fd.append('cart',JSON.stringify(cart));
         fd.append('cuahang_id', document.getElementById('posStoreSelect').value);
         fd.append('nhanvien_id', document.getElementById('posStaffSelect').value);
         fd.append('khachhang_id', document.getElementById('posCustomerSelect').value);
         fd.append('khuyenmai_id', document.getElementById('posPromoSelect').value);
-        fd.append('phuong_thuc', meth); fd.append('tong_tien', calc.s);
-        fd.append('tien_giam_gia', calc.d); fd.append('khach_phai_tra', calc.t);
+        fd.append('phuong_thuc', meth); 
+        fd.append('tong_tien', calc.s);
+        fd.append('tien_giam_gia', calc.d); 
+        fd.append('khach_phai_tra', calc.t);
 
         fetch('', { method: 'POST', body: fd }).then(r=>r.json()).then(d => {
             if(d.success) {
@@ -533,20 +590,73 @@ require ROOT_PATH . '/includes/header.php';
                 const sSelect = document.getElementById('posStaffSelect');
                 document.getElementById('rStaff').textContent = sSelect.options[sSelect.selectedIndex].text.replace('👤 ','');
 
-                let h = ''; cart.forEach(i => h += `<div class="d-flex justify-content-between mb-1"><span>${i.name} (x${i.qty})</span><span>${fVND(i.price*i.qty)}</span></div>`);
+                let h = ''; 
+                cart.forEach(i => h += `<div class="d-flex justify-content-between mb-1"><span>${i.name} (x${i.qty})</span><span>${fVND(i.price*i.qty)}</span></div>`);
                 document.getElementById('rItems').innerHTML = h; 
                 document.getElementById('rSub').textContent = fVND(calc.s);
                 document.getElementById('rDisc').textContent = '-'+fVND(calc.d); 
                 document.getElementById('rVat').textContent = fVND(calc.v);
                 document.getElementById('rTotal').textContent = fVND(calc.t); 
                 document.getElementById('rMeth').textContent = meth;
+
+                const cashRows = document.getElementById('rCashRows');
+                if (meth === 'Tiền mặt') {
+                    const given = parseFloat(document.getElementById('cCash').value) || calc.t;
+                    const change = Math.max(0, given - calc.t);
+                    document.getElementById('rGiven').textContent = fVND(given);
+                    document.getElementById('rChange').textContent = fVND(change);
+                    cashRows.style.display = '';
+                } else {
+                    cashRows.style.display = 'none';
+                }
+
                 document.getElementById('stepPay').style.display = 'none'; 
                 document.getElementById('stepRcp').style.display = '';
                 document.getElementById('fPay').style.display = 'none'; 
                 document.getElementById('fRcp').style.display = '';
-            } else { alert(d.message); b.disabled=false; b.innerHTML='<i class="fa-solid fa-check me-2"></i>Hoàn tất'; }
+            } else { 
+                alert(d.message); 
+                b.disabled = false; 
+                b.innerHTML = '<i class="fa-solid fa-check me-2"></i>Hoàn tất'; 
+            }
         });
     }
+
+    function resetNewCustomer() {
+        cart = [];
+        drawCart();
+        document.getElementById('posCustomerInput').value = '';
+        document.getElementById('posCustomerSelect').selectedIndex = 0;
+        updateTierBadge('none');
+        document.getElementById('posPromoSelect').selectedIndex = 0;
+        calcTotal();
+
+        const curCodeEl = document.getElementById('currentOrderCode');
+        const num = parseInt(curCodeEl.textContent.replace('#HD', '')) || 1024;
+        curCodeEl.textContent = '#HD' + (num + 1);
+
+        document.getElementById('stepPay').style.display = ''; 
+        document.getElementById('stepRcp').style.display = 'none';
+        document.getElementById('fPay').style.display = ''; 
+        document.getElementById('fRcp').style.display = 'none';
+
+        const modalEl = document.getElementById('mdlPay');
+        const modal = bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+    }
+
+    function clearCartConfirm() {
+        if(confirm('Bạn có chắc muốn hủy đơn hàng này?')) {
+            cart = [];
+            drawCart();
+            document.getElementById('posCustomerInput').value = '';
+            document.getElementById('posCustomerSelect').selectedIndex = 0;
+            updateTierBadge('none');
+            document.getElementById('posPromoSelect').selectedIndex = 0;
+            calcTotal();
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', drawCart);
 </script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>
