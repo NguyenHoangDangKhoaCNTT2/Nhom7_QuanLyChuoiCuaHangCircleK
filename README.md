@@ -8,5 +8,3 @@
 |  2  | Nguyễn Dương Bảo Phú   | 65132716 |
 |  3  | Nguyễn Phương Nam      | 65132069 |
 |  4  | Đoàn Anh Thái          | 65133158 |
-
-## Ngôn ngữ: PHP
