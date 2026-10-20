@@ -19,7 +19,30 @@ require ROOT_PATH . '/includes/header.php';
         <div class="segmented-control" role="group"><button type="button" class="seg-btn active">7 Ngày</button><button type="button" class="seg-btn">30 Ngày</button><button type="button" class="seg-btn">Quý này</button></div>
     </div>
     <div class="d-flex flex-wrap align-items-center gap-2 mb-3"><select class="form-select" style="width: auto;"><option>Doanh thu</option><option>Số đơn hàng</option><option>Hội viên mới</option></select><button type="button" class="btn-ck btn-ck-soft ms-auto"><i class="fa-solid fa-file-export"></i> Xuất Excel</button></div>
-    <div class="placeholder-box" style="min-height: 330px;"><i class="fa-solid fa-chart-column"></i><span>Biểu đồ cột so sánh các cửa hàng — vẽ bằng Chart.js, dùng CK trong charts-default.js</span></div>
+<canvas id="compareChart" style="max-height: 330px;"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const ctx = document.getElementById('compareChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Circle K Quận 1', 'Circle K Quận 3', 'Circle K Quận 5', 'Circle K Bình Thạnh'],
+                datasets: [{
+                    label: 'Doanh thu (VNĐ)',
+                    data: [56452500, 37635000, 42100000, 28500000],
+                    backgroundColor: '#ec4899',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } }
+            }
+        });
+    });
+</script>    
 </div>
 
 <div class="bento-panel fade-up d-1 mt-4">

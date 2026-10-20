@@ -43,11 +43,22 @@ require ROOT_PATH . '/includes/header.php';
         <table class="table table-modern mb-0">
             <thead><tr><th>Ngày</th><th>Cửa hàng</th><th class="text-end">Số đơn</th><th class="text-end">Doanh thu</th><th>Tăng trưởng</th></tr></thead>
             <tbody>
-                <tr><td>16/10/2026</td><td>Circle K Quận 1</td><td class="text-end"><span class="num-font fw-bold ">652</span></td><td class="text-end"><span class="num-font fw-bold ">56,452,500 ₫</span></td><td><span class="trend-pill trend-up"><i class="fa-solid fa-arrow-trend-up"></i> 8.5%</span></td></tr>
-                <tr><td>16/10/2026</td><td>Circle K Quận 3</td><td class="text-end"><span class="num-font fw-bold ">488</span></td><td class="text-end"><span class="num-font fw-bold ">37,635,000 ₫</span></td><td><span class="trend-pill trend-down"><i class="fa-solid fa-arrow-trend-down"></i> 2.1%</span></td></tr>
+                <tr><td><?php echo date('d/m/Y'); ?></td><td>Circle K Quận 1</td><td class="text-end"><span class="num-font fw-bold ">652</span></td><td class="text-end"><span class="num-font fw-bold ">56,452,500 ₫</span></td><td><span class="trend-pill trend-up"><i class="fa-solid fa-arrow-trend-up"></i> 8.5%</span></td></tr>
+                <tr><td><?php echo date('d/m/Y'); ?></td><td>Circle K Quận 3</td><td class="text-end"><span class="num-font fw-bold ">488</span></td><td class="text-end"><span class="num-font fw-bold ">37,635,000 ₫</span></td><td><span class="trend-pill trend-down"><i class="fa-solid fa-arrow-trend-down"></i> 2.1%</span></td></tr>
             </tbody>
         </table>
     </div>
 </div>
+<script>
+    document.querySelectorAll('.segmented-control').forEach(control => {
+        const buttons = control.querySelectorAll('.seg-btn');
+        buttons.forEach(btn => {
+            btn.addEventListener('click', function() {
+                buttons.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+    });
+</script>
 
 <?php require ROOT_PATH . '/includes/footer.php'; ?>
