@@ -148,6 +148,48 @@ $sqlOrders = "SELECT hd.*, ch.ten_cua_hang, nv.ho_ten AS ten_nv,
               ORDER BY hd.id DESC";
 $orders = $pdo->query($sqlOrders)->fetchAll();
 
+$insightToday = date('Y-m-d');
+$insightYesterday = date('Y-m-d', strtotime('-1 day'));
+$insightTodayRevenue = 0;
+$insightYesterdayRevenue = 0;
+$insightTodayPaid = 0;
+$insightTodayCanceled = 0;
+$insightPending = 0;
+$insightDiscountedOrders = 0;
+foreach ($orders as $insightOrder) {
+    $insightOrderDate = substr((string)($insightOrder['ngay_tao'] ?? ''), 0, 10);
+    $insightOrderStatus = $insightOrder['trang_thai'] ?? '';
+    if (in_array($insightOrderStatus, ['Hoàn thành', 'Đã thanh toán'], true)) {
+        if ($insightOrderDate === $insightToday) {
+            $insightTodayRevenue += (float)$insightOrder['khach_phai_tra'];
+            $insightTodayPaid++;
+        } elseif ($insightOrderDate === $insightYesterday) {
+            $insightYesterdayRevenue += (float)$insightOrder['khach_phai_tra'];
+        }
+        if ((float)($insightOrder['tien_giam_gia'] ?? 0) > 0) $insightDiscountedOrders++;
+    } elseif ($insightOrderStatus === 'Chờ thanh toán') {
+        $insightPending++;
+    } elseif ($insightOrderStatus === 'Đã hủy' && $insightOrderDate === $insightToday) {
+        $insightTodayCanceled++;
+    }
+}
+$insightAvgDiscount = $insightDiscountedOrders > 0 ? $tongGiamGia / $insightDiscountedOrders : 0;
+$insightDiscountRate = ($tongDoanhThu + $tongGiamGia) > 0 ? round($tongGiamGia / ($tongDoanhThu + $tongGiamGia) * 100, 1) : 0;
+$insightSuccessRate = ($tongDonThanhCong + $tongDonHuy) > 0 ? round($tongDonThanhCong / ($tongDonThanhCong + $tongDonHuy) * 100, 1) : 0;
+$insightTopBranch = null;
+foreach ($branchStats as $insightBranch) {
+    if ((float)$insightBranch['doanh_thu'] > 0) {
+        $insightTopBranch = $insightBranch;
+        break;
+    }
+}
+$insightTopTier = null;
+foreach ($tierStats as $insightTier) {
+    if ($insightTopTier === null || (float)$insightTier['tong_giam'] > (float)$insightTopTier['tong_giam']) {
+        $insightTopTier = $insightTier;
+    }
+}
+
 $pageTitle  = 'Lập & Quản lý Hóa đơn';
 $activeMenu = 'lap_hoa_don';
 
@@ -179,6 +221,15 @@ require ROOT_PATH . '/includes/header.php';
     .th-blue .sf-icon-box { background: #e0f2fe; color: #0ea5e9; } .th-blue .sf-num, .th-blue .sf-unit { color: #0ea5e9; }
     .th-green .sf-icon-box { background: #d1fae5; color: #10b981; } .th-green .sf-num, .th-green .sf-unit { color: #10b981; }
     .th-gray .sf-icon-box { background: #f1f5f9; color: #475569; } .th-gray .sf-num, .th-gray .sf-unit { color: #475569; }
+
+    .stat-float-wrapper:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+    .invoice-insight-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; height: 100%; }
+    .invoice-insight-label { color: #64748b; font-size: .78rem; font-weight: 700; }
+    .invoice-insight-value { color: #0f172a; font-size: 1.4rem; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
+    .invoice-insight-note { background: #f1f5f9; border-radius: 12px; padding: 14px; color: #475569; font-size: .87rem; }
+    .invoice-insight-panel[hidden] { display: none !important; }
+    .invoice-insight-bar { height: 7px; background: #e2e8f0; border-radius: 30px; overflow: hidden; }
+    .invoice-insight-bar > div { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ff3657, #fb7951); }
 
     .ripple { position: absolute; border-radius: 50%; transform: scale(0); animation: ripple 0.6s cubic-bezier(0.4, 0, 0.2, 1); background-color: rgba(0, 0, 0, 0.04); pointer-events: none; }
     @keyframes ripple { to { transform: scale(4); opacity: 0; } }
@@ -230,7 +281,7 @@ require ROOT_PATH . '/includes/header.php';
 
 <div class="row g-4 mb-4">
     <div class="col-12 col-md-6 col-xl-3">
-        <div class="stat-float-wrapper th-red" onclick="openExecutiveHub('revenue')">
+        <div class="stat-float-wrapper th-red" role="button" tabindex="0" aria-label="Xem nhanh doanh thu" onclick="openInvoiceQuickInsight('revenue')" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInvoiceQuickInsight('revenue'); }">
             <div class="sf-header-row">
                 <div class="sf-pill">DOANH THU HỆ THỐNG</div>
                 <div class="sf-icon-box"><i class="fa-solid fa-sack-dollar"></i></div>
@@ -239,12 +290,12 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="sf-num"><?= number_format($tongDoanhThu, 0, ',', '.') ?></span>
                 <span class="sf-unit">₫</span>
             </div>
-            <div class="sf-footer-row"><i class="fa-solid fa-chart-pie"></i> Xem phân tích cơ cấu</div>
+            <div class="sf-footer-row"><i class="fa-solid fa-chart-pie"></i> Nhấn để xem doanh thu hôm nay</div>
         </div>
     </div>
 
     <div class="col-12 col-md-6 col-xl-3">
-        <div class="stat-float-wrapper th-blue" onclick="openExecutiveHub('orders')">
+        <div class="stat-float-wrapper th-blue" role="button" tabindex="0" aria-label="Xem tình trạng hóa đơn" onclick="openInvoiceQuickInsight('orders')" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInvoiceQuickInsight('orders'); }">
             <div class="sf-header-row">
                 <div class="sf-pill">TỔNG HÓA ĐƠN</div>
                 <div class="sf-icon-box"><i class="fa-solid fa-receipt"></i></div>
@@ -253,12 +304,12 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="sf-num"><?= number_format($tongDonThanhCong, 0, ',', '.') ?></span>
                 <span class="sf-unit text-muted" style="font-size: 0.95rem;">ĐƠN</span>
             </div>
-            <div class="sf-footer-row"><i class="fa-solid fa-arrow-trend-up"></i> Chỉ số AOV & Giỏ hàng</div>
+            <div class="sf-footer-row"><i class="fa-solid fa-arrow-trend-up"></i> Nhấn để xem đơn cần xử lý</div>
         </div>
     </div>
 
     <div class="col-12 col-md-6 col-xl-3">
-        <div class="stat-float-wrapper th-green" onclick="openExecutiveHub('discount')">
+        <div class="stat-float-wrapper th-green" role="button" tabindex="0" aria-label="Xem hiệu quả ưu đãi" onclick="openInvoiceQuickInsight('discount')" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInvoiceQuickInsight('discount'); }">
             <div class="sf-header-row">
                 <div class="sf-pill">TỔNG KHUYẾN MÃI</div>
                 <div class="sf-icon-box"><i class="fa-solid fa-tags"></i></div>
@@ -268,12 +319,12 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="sf-num"><?= number_format($tongGiamGia, 0, ',', '.') ?></span>
                 <span class="sf-unit">₫</span>
             </div>
-            <div class="sf-footer-row"><i class="fa-solid fa-id-card"></i> Báo cáo Hạng thành viên</div>
+            <div class="sf-footer-row"><i class="fa-solid fa-id-card"></i> Nhấn để xem hiệu quả giảm giá</div>
         </div>
     </div>
 
     <div class="col-12 col-md-6 col-xl-3">
-        <div class="stat-float-wrapper th-gray" onclick="openExecutiveHub('cancel')">
+        <div class="stat-float-wrapper th-gray" role="button" tabindex="0" aria-label="Xem nhanh đơn hủy" onclick="openInvoiceQuickInsight('cancel')" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInvoiceQuickInsight('cancel'); }">
             <div class="sf-header-row">
                 <div class="sf-pill">ĐƠN HỦY / TRẢ</div>
                 <div class="sf-icon-box"><i class="fa-solid fa-ban"></i></div>
@@ -282,7 +333,7 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="sf-num"><?= number_format($tongDonHuy, 0, ',', '.') ?></span>
                 <span class="sf-unit text-muted" style="font-size: 0.95rem;">ĐƠN</span>
             </div>
-            <div class="sf-footer-row"><i class="fa-solid fa-shield-halved"></i> Kiểm toán & Xuất CSV</div>
+            <div class="sf-footer-row"><i class="fa-solid fa-shield-halved"></i> Nhấn để xem tỷ lệ hủy</div>
         </div>
     </div>
 </div>
@@ -439,6 +490,70 @@ require ROOT_PATH . '/includes/header.php';
         </div>
     </div>
     <div id="invoicePagination" class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-3" aria-label="Phân trang hóa đơn"></div>
+</div>
+
+<div class="modal fade" id="modalInvoiceQuickInsight" tabindex="-1" aria-labelledby="invoiceQuickInsightTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 590px;">
+        <div class="modal-content border-0" style="border-radius: 22px; box-shadow: 0 24px 64px rgba(15,23,42,.15);">
+            <div class="modal-header border-0 px-4 pt-4 pb-2">
+                <div>
+                    <div class="small text-muted fw-semibold mb-1">THỐNG KÊ NHANH · DỮ LIỆU HỆ THỐNG</div>
+                    <h5 id="invoiceQuickInsightTitle" class="modal-title fw-bold mb-0">Tổng quan</h5>
+                </div>
+                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Đóng"></button>
+            </div>
+            <div class="modal-body px-4 pb-3 pt-2">
+                <section class="invoice-insight-panel" data-invoice-insight="revenue" hidden>
+                    <div class="row g-3 mb-3">
+                        <div class="col-6"><div class="invoice-insight-card"><div class="invoice-insight-label">Doanh thu hôm nay</div><div class="invoice-insight-value text-danger"><?= number_format($insightTodayRevenue, 0, ',', '.') ?> ₫</div></div></div>
+                        <div class="col-6"><div class="invoice-insight-card"><div class="invoice-insight-label">Doanh thu hôm qua</div><div class="invoice-insight-value"><?= number_format($insightYesterdayRevenue, 0, ',', '.') ?> ₫</div></div></div>
+                    </div>
+                    <div class="invoice-insight-note mb-3">
+                        <i class="fa-solid fa-chart-line me-1 text-danger"></i>
+                        <?php if ($insightYesterdayRevenue > 0): ?>
+                            Hôm nay doanh thu <?= $insightTodayRevenue >= $insightYesterdayRevenue ? 'tăng' : 'giảm' ?> <strong><?= number_format(abs($insightTodayRevenue - $insightYesterdayRevenue) / $insightYesterdayRevenue * 100, 1, ',', '.') ?>%</strong> so với hôm qua.
+                        <?php else: ?>
+                            Hôm qua chưa có doanh thu để đối chiếu. Hôm nay đã có <strong><?= $insightTodayPaid ?> hóa đơn thanh toán</strong>.
+                        <?php endif; ?>
+                    </div>
+                    <?php if ($insightTopBranch !== null): ?>
+                        <div class="small text-muted mb-1">Chi nhánh có doanh thu cao nhất (toàn bộ dữ liệu)</div>
+                        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap"><strong><?= htmlspecialchars($insightTopBranch['ten_cua_hang'], ENT_QUOTES, 'UTF-8') ?></strong><span class="fw-bold text-danger"><?= number_format($insightTopBranch['doanh_thu'], 0, ',', '.') ?> ₫</span></div>
+                    <?php endif; ?>
+                    <button class="btn btn-danger mt-4 w-100" type="button" onclick="filterInvoicesFromInsight('Đã thanh toán')"><i class="fa-solid fa-list me-2"></i>Xem hóa đơn đã thanh toán</button>
+                </section>
+                <section class="invoice-insight-panel" data-invoice-insight="orders" hidden>
+                    <div class="row g-3 mb-3">
+                        <div class="col-6"><div class="invoice-insight-card"><div class="invoice-insight-label">Giá trị trung bình / đơn</div><div class="invoice-insight-value text-primary"><?= number_format($aov, 0, ',', '.') ?> ₫</div></div></div>
+                        <div class="col-6"><div class="invoice-insight-card"><div class="invoice-insight-label">Chờ thanh toán</div><div class="invoice-insight-value"><?= $insightPending ?> đơn</div></div></div>
+                    </div>
+                    <div class="invoice-insight-note"><i class="fa-solid fa-circle-info me-1 text-primary"></i> Hôm nay hoàn thành <strong><?= $insightTodayPaid ?> hóa đơn</strong>. <?= $insightPending > 0 ? 'Có đơn đang chờ, bạn có thể mở danh sách để kiểm tra.' : 'Hiện không có đơn nào đang chờ thanh toán.' ?></div>
+                    <button class="btn btn-primary mt-4 w-100" type="button" onclick="filterInvoicesFromInsight('<?= $insightPending > 0 ? 'Chờ thanh toán' : '' ?>')"><i class="fa-solid fa-filter me-2"></i><?= $insightPending > 0 ? 'Xem các đơn chờ thanh toán' : 'Xem tất cả hóa đơn' ?></button>
+                </section>
+                <section class="invoice-insight-panel" data-invoice-insight="discount" hidden>
+                    <div class="row g-3 mb-3">
+                        <div class="col-6"><div class="invoice-insight-card"><div class="invoice-insight-label">Đơn có giảm giá</div><div class="invoice-insight-value text-success"><?= $insightDiscountedOrders ?> đơn</div></div></div>
+                        <div class="col-6"><div class="invoice-insight-card"><div class="invoice-insight-label">Giảm trung bình / đơn có ưu đãi</div><div class="invoice-insight-value"><?= number_format($insightAvgDiscount, 0, ',', '.') ?> ₫</div></div></div>
+                    </div>
+                    <div class="d-flex justify-content-between small mb-2"><span class="text-muted fw-semibold">Tỷ trọng tiền giảm trong doanh số trước giảm</span><strong><?= number_format($insightDiscountRate, 1, ',', '.') ?>%</strong></div>
+                    <div class="invoice-insight-bar mb-3"><div style="width: <?= max(0, min(100, $insightDiscountRate)) ?>%; background: linear-gradient(90deg,#10b981,#34d399);"></div></div>
+                    <div class="invoice-insight-note"><i class="fa-solid fa-tags me-1 text-success"></i> Tổng giảm giá của các hóa đơn thành công: <strong><?= number_format($tongGiamGia, 0, ',', '.') ?> ₫</strong><?= $insightTopTier !== null && (float)$insightTopTier['tong_giam'] > 0 ? '. Nhóm khách nhận tổng mức giảm cao nhất: ' . htmlspecialchars($insightTopTier['hang'], ENT_QUOTES, 'UTF-8') . '.' : '.' ?></div>
+                    <button class="btn btn-success mt-4 w-100" type="button" onclick="filterInvoicesFromInsight('Đã thanh toán')"><i class="fa-solid fa-receipt me-2"></i>Xem hóa đơn thành công</button>
+                </section>
+                <section class="invoice-insight-panel" data-invoice-insight="cancel" hidden>
+                    <div class="row g-3 mb-3">
+                        <div class="col-6"><div class="invoice-insight-card"><div class="invoice-insight-label">Đơn hủy hôm nay</div><div class="invoice-insight-value"><?= $insightTodayCanceled ?> đơn</div></div></div>
+                        <div class="col-6"><div class="invoice-insight-card"><div class="invoice-insight-label">Tỷ lệ hủy toàn hệ thống</div><div class="invoice-insight-value"><?= number_format($tiLeHuy, 1, ',', '.') ?>%</div></div></div>
+                    </div>
+                    <div class="d-flex justify-content-between small mb-2"><span class="text-muted fw-semibold">Tỷ lệ hóa đơn hoàn thành</span><strong><?= number_format($insightSuccessRate, 1, ',', '.') ?>%</strong></div>
+                    <div class="invoice-insight-bar mb-3"><div style="width: <?= max(0, min(100, $insightSuccessRate)) ?>%; background: linear-gradient(90deg,#64748b,#94a3b8);"></div></div>
+                    <div class="invoice-insight-note"><i class="fa-solid fa-shield-halved me-1 text-secondary"></i> <?= $tongDonHuy > 0 ? 'Đã ghi nhận ' . $tongDonHuy . ' đơn hủy. Bạn có thể lọc để kiểm tra từng hóa đơn.' : 'Chưa ghi nhận hóa đơn hủy trong hệ thống.' ?></div>
+                    <button class="btn btn-outline-secondary mt-4 w-100" type="button" onclick="filterInvoicesFromInsight('Đã hủy')"><i class="fa-solid fa-filter me-2"></i>Lọc danh sách đơn đã hủy</button>
+                </section>
+            </div>
+            <div class="modal-footer border-0 px-4 pb-4 pt-0"><button class="btn btn-light border w-100" type="button" data-bs-dismiss="modal">Đóng</button></div>
+        </div>
+    </div>
 </div>
 
 <div class="modal fade" id="modalExecutiveHub" tabindex="-1" aria-hidden="true">
@@ -790,6 +905,40 @@ require ROOT_PATH . '/includes/header.php';
             this.appendChild(circle);
         });
     });
+
+    function openInvoiceQuickInsight(type) {
+        const headings = {
+            revenue: 'Doanh thu hệ thống',
+            orders: 'Tình trạng hóa đơn',
+            discount: 'Hiệu quả khuyến mãi',
+            cancel: 'Theo dõi đơn hủy'
+        };
+        if (!Object.prototype.hasOwnProperty.call(headings, type)) return;
+        document.getElementById('invoiceQuickInsightTitle').textContent = headings[type];
+        document.querySelectorAll('[data-invoice-insight]').forEach(panel => {
+            panel.hidden = panel.dataset.invoiceInsight !== type;
+        });
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('modalInvoiceQuickInsight')).show();
+    }
+
+    function filterInvoicesFromInsight(status) {
+        const modalEl = document.getElementById('modalInvoiceQuickInsight');
+        const modal = bootstrap.Modal.getInstance(modalEl);
+        const viewList = () => {
+            document.getElementById('filterKeyword').value = '';
+            document.getElementById('filterStore').value = '';
+            document.getElementById('filterMethod').value = '';
+            document.getElementById('filterStatus').value = status;
+            filterInvoices();
+            document.querySelector('#invoiceTableBody').closest('.table-responsive').scrollIntoView({behavior:'smooth',block:'start'});
+        };
+        if (modal && modalEl.classList.contains('show')) {
+            modalEl.addEventListener('hidden.bs.modal', viewList, {once: true});
+            modal.hide();
+        } else {
+            viewList();
+        }
+    }
 
     function openExecutiveHub(tabName) {
         new bootstrap.Modal(document.getElementById('modalExecutiveHub')).show();

@@ -149,13 +149,55 @@ require ROOT_PATH . '/includes/header.php';
 
     .table-promo th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; font-weight: 700; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
     .table-promo td { font-size: 0.88rem; vertical-align: middle; border-bottom: 1px solid #f1f5f9; }
+
+    .promo-stat-interactive { cursor: pointer; outline: none; isolation: isolate; }
+    .promo-stat-interactive::after { content: '↗'; position: absolute; right: 19px; bottom: 17px; width: 27px; height: 27px; display: grid; place-items: center; background: rgba(255,255,255,.84); border: 1px solid #e2e8f0; color: #64748b; border-radius: 10px; font-size: 16px; font-weight: 800; transition: transform .24s, background .24s, color .24s; }
+    .promo-stat-interactive:hover::after, .promo-stat-interactive:focus-visible::after { transform: translate(3px,-3px); color: #e11d48; background: #fff; }
+    .promo-stat-interactive:focus-visible { outline: 3px solid rgba(225,29,72,.45); outline-offset: 3px; }
+    .promo-insight-dialog { max-width: 990px; }
+    .promo-insight-shell { border: none; border-radius: 23px; overflow: hidden; box-shadow: 0 35px 80px rgba(15,23,42,.25); }
+    .promo-insight-banner { --insight-color: #e11d48; padding: 26px 30px; background: linear-gradient(118deg, var(--insight-color), #202a47); color: #fff; display: flex; align-items: flex-start; gap: 17px; }
+    .promo-insight-banner .insight-icon { width: 53px; height: 53px; flex: 0 0 53px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.16); display: grid; place-items: center; border-radius: 16px; font-size: 23px; }
+    .promo-insight-eyebrow { font-size: 11px; text-transform: uppercase; font-weight: 800; opacity: .85; letter-spacing: 1.2px; }
+    .promo-insight-title { font-size: 23px; font-weight: 850; margin: 4px 0 5px; }
+    .promo-insight-banner .btn-close { flex-shrink: 0; margin-left: auto; margin-top: 2px; opacity: .9; }
+    .promo-insight-body { padding: 23px 27px 25px; background: #f8fafc; }
+    .insight-note { background: #fff; border-radius: 13px; padding: 13px 15px; color: #475569; border: 1px solid #e2e8f0; display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.55; margin-bottom: 18px; }
+    .insight-note i { color: #0ea5e9; margin-top: 2px; }
+    .insight-stat-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-bottom: 17px; }
+    .insight-stat { background: #fff; border: 1px solid #e2e8f0; border-radius: 15px; padding: 15px 17px; min-width: 0; }
+    .insight-stat .name { color: #64748b; font-size: 12px; font-weight: 750; margin-bottom: 5px; }
+    .insight-stat .number { color: #0f172a; font-size: 27px; font-weight: 900; letter-spacing: -.7px; line-height: 1.15; }
+    .insight-stat .foot { color: #94a3b8; font-size: 11px; margin-top: 6px; }
+    .insight-block { background: #fff; border: 1px solid #e2e8f0; border-radius: 17px; padding: 18px; height: 100%; }
+    .insight-block-title { color: #0f172a; font-size: 14px; font-weight: 850; display: flex; align-items: center; gap: 8px; margin-bottom: 15px; }
+    .insight-block-title i { color: #e11d48; }
+    .insight-bar-row { margin-bottom: 16px; }
+    .insight-bar-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #475569; font-size: 12px; margin-bottom: 7px; }
+    .insight-bar-top strong { color: #0f172a; }
+    .insight-bar-track { width: 100%; background: #edf2f7; height: 9px; overflow: hidden; border-radius: 99px; }
+    .insight-bar-value { background: var(--bar-color, #e11d48); height: 100%; border-radius: 99px; transition: width .3s ease; }
+    .insight-row-button { border: 1px solid #f1f5f9; background: #fff; width: 100%; text-align: left; padding: 11px 12px; border-radius: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 9px; transition: background .2s,border-color .2s,transform .2s; }
+    .insight-row-button:hover, .insight-row-button:focus-visible { background: #fff8f8; border-color: #fecdd3; transform: translateX(2px); }
+    .insight-row-button .insight-code { font-family: monospace; font-size: 12px; font-weight: 900; color: #e11d48; }
+    .insight-row-button .insight-name { display: block; font-size: 12px; font-weight: 650; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 360px; }
+    .insight-row-button .insight-meta { color: #64748b; font-size: 11px; white-space: nowrap; text-align: right; }
+    .insight-chip { display: inline-block; background: #f1f5f9; border-radius: 8px; padding: 4px 8px; font-size: 11px; color: #475569; font-weight: 750; }
+    .insight-link { color: #e11d48; border: 0; background: none; font-weight: 750; font-size: 12px; padding: 5px; }
+    .insight-empty { color: #94a3b8; text-align: center; font-size: 13px; padding: 22px 8px; }
+    .insight-action-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 14px 25px; }
+    .insight-action { border: none; border-radius: 10px; padding: 10px 17px; background: #e11d48; color: #fff; font-size: 13px; font-weight: 800; }
+    .insight-action:hover { background: #be123c; }
+    .insight-sub-action { padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff; font-weight: 750; color: #475569; font-size: 12px; }
+    .insight-sub-action:hover { background: #f1f5f9; }
+    @media (max-width: 767px) { .promo-insight-banner { padding: 20px 18px; } .promo-insight-title { font-size: 19px; } .promo-insight-body { padding: 16px; } .insight-stat-grid { gap: 7px; } .insight-stat { padding: 10px; } .insight-stat .number { font-size: 22px; } .insight-stat .name { font-size: 10px; } .insight-row-button .insight-name { max-width: 175px; } }
 </style>
 
 <script>document.querySelector('body').classList.add('layout-fixed');</script>
 
 <div class="row g-4 mb-4">
     <div class="col-12 col-md-6 col-xl-3">
-        <div class="stat-float-wrapper th-red">
+        <div class="stat-float-wrapper th-red promo-stat-interactive" role="button" tabindex="0" aria-haspopup="dialog" title="Bấm để xem phân tích chi tiết" onclick="openPromoInsight('total')" onkeydown="if(event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openPromoInsight('total'); }">
             <div class="sf-header-row">
                 <div class="sf-pill">TỔNG CHIẾN DỊCH</div>
                 <div class="sf-icon-box"><i class="fa-solid fa-ticket"></i></div>
@@ -169,7 +211,7 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 
     <div class="col-12 col-md-6 col-xl-3">
-        <div class="stat-float-wrapper th-green">
+        <div class="stat-float-wrapper th-green promo-stat-interactive" role="button" tabindex="0" aria-haspopup="dialog" title="Bấm để xem phân tích chi tiết" onclick="openPromoInsight('active')" onkeydown="if(event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openPromoInsight('active'); }">
             <div class="sf-header-row">
                 <div class="sf-pill">ĐANG KÍCH HOẠT</div>
                 <div class="sf-icon-box"><i class="fa-solid fa-bolt"></i></div>
@@ -183,7 +225,7 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 
     <div class="col-12 col-md-6 col-xl-3">
-        <div class="stat-float-wrapper th-blue">
+        <div class="stat-float-wrapper th-blue promo-stat-interactive" role="button" tabindex="0" aria-haspopup="dialog" title="Bấm để xem phân tích chi tiết" onclick="openPromoInsight('used')" onkeydown="if(event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openPromoInsight('used'); }">
             <div class="sf-header-row">
                 <div class="sf-pill">LƯỢT ÁP DỤNG</div>
                 <div class="sf-icon-box"><i class="fa-solid fa-users-viewfinder"></i></div>
@@ -197,7 +239,7 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 
     <div class="col-12 col-md-6 col-xl-3">
-        <div class="stat-float-wrapper th-amber">
+        <div class="stat-float-wrapper th-amber promo-stat-interactive" role="button" tabindex="0" aria-haspopup="dialog" title="Bấm để xem phân tích chi tiết" onclick="openPromoInsight('lifecycle')" onkeydown="if(event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openPromoInsight('lifecycle'); }">
             <div class="sf-header-row">
                 <div class="sf-pill">CHỜ / ĐÃ KẾT THÚC</div>
                 <div class="sf-icon-box"><i class="fa-solid fa-clock-rotate-left"></i></div>
@@ -207,6 +249,35 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="sf-unit">MÃ KM</span>
             </div>
             <div class="sf-footer-row"><i class="fa-solid fa-calendar-days"></i> <?= $upcomingPromos ?> sắp mở · <?= $expiredPromos ?> hết hạn</div>
+        </div>
+    </div>
+</div>
+
+
+<div class="modal fade" id="promoInsightModal" tabindex="-1" aria-labelledby="promoInsightTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable promo-insight-dialog">
+        <div class="modal-content promo-insight-shell">
+            <div class="promo-insight-banner" id="promoInsightBanner">
+                <div class="insight-icon"><i id="promoInsightIcon" class="fa-solid fa-chart-pie"></i></div>
+                <div>
+                    <div class="promo-insight-eyebrow">Circle K · PHÂN TÍCH KHUYẾN MÃI</div>
+                    <h4 class="promo-insight-title" id="promoInsightTitle">Phân tích khuyến mãi</h4>
+                    <div style="font-size: 12px; opacity: .9;" id="promoInsightSubtitle"></div>
+                </div>
+                <button class="btn-close btn-close-white" type="button" data-bs-dismiss="modal" aria-label="Đóng"></button>
+            </div>
+            <div class="modal-body promo-insight-body">
+                <div class="insight-note"><i class="fa-solid fa-wand-magic-sparkles"></i><span id="promoInsightNote"></span></div>
+                <div id="promoInsightMetrics" class="insight-stat-grid"></div>
+                <div class="row g-3">
+                    <div class="col-12 col-lg-5"><div class="insight-block" id="promoInsightLeft"></div></div>
+                    <div class="col-12 col-lg-7"><div class="insight-block" id="promoInsightRight"></div></div>
+                </div>
+            </div>
+            <div class="modal-footer border-0 insight-action-row">
+                <button type="button" class="insight-sub-action" data-bs-dismiss="modal">Đóng</button>
+                <button type="button" class="insight-action" id="promoInsightMainAction">Xem trong danh sách <i class="fa-solid fa-arrow-right ms-1"></i></button>
+            </div>
         </div>
     </div>
 </div>
@@ -324,6 +395,7 @@ require ROOT_PATH . '/includes/header.php';
             <i class="fa-solid fa-ticket fs-2 mb-2 d-block opacity-25"></i> Không tìm thấy chương trình khuyến mãi phù hợp.
         </div>
     </div>
+    <div id="promoPagination" class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-3" aria-label="Phân trang khuyến mãi"></div>
 </div>
 
 <div class="modal fade" id="modalPromoForm" tabindex="-1" aria-hidden="true">
@@ -393,26 +465,206 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
 <script>
-    function filterPromos() {
+
+    const promoInsightData = <?= json_encode(array_map(static function ($p) {
+        return [
+            'id' => (int)$p['id'],
+            'code' => (string)$p['ma_voucher'],
+            'name' => (string)$p['ten_km'],
+            'type' => (string)$p['loai_km'],
+            'value' => (float)$p['gia_tri'],
+            'scope' => $p['ten_cua_hang'] ?: 'Toàn hệ thống',
+            'quantity' => $p['so_luong'] === null ? null : (int)$p['so_luong'],
+            'used' => (int)$p['used_count'],
+            'status' => (string)$p['status_key'],
+            'statusLabel' => (string)$p['status_label'],
+            'start' => (string)$p['thoi_gian_bat_dau'],
+            'end' => (string)$p['thoi_gian_ket_thuc']
+        ];
+    }, $promos), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+    const promoInsightNum = new Intl.NumberFormat('vi-VN');
+
+    function promoInsightEscape(value) {
+        return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+    }
+
+    function promoInsightDate(s) {
+        if (!s) return new Date(NaN);
+        return new Date(String(s).replace(' ', 'T'));
+    }
+
+    function promoInsightDateText(s) {
+        const d = promoInsightDate(s);
+        return isNaN(d.getTime()) ? 'Chưa rõ' : d.toLocaleString('vi-VN', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    }
+
+    function promoInsightTile(label, value, detail) {
+        return `<div class="insight-stat"><div class="name">${promoInsightEscape(label)}</div><div class="number">${promoInsightEscape(value)}</div><div class="foot">${promoInsightEscape(detail)}</div></div>`;
+    }
+
+    function promoInsightBar(label, count, total, color) {
+        const width = total > 0 ? Math.max(0, Math.min(100, count / total * 100)) : 0;
+        return `<div class="insight-bar-row"><div class="insight-bar-top"><span>${promoInsightEscape(label)}</span><strong>${promoInsightNum.format(count)}</strong></div><div class="insight-bar-track"><div class="insight-bar-value" style="width:${width.toFixed(2)}%;--bar-color:${color}"></div></div></div>`;
+    }
+
+    function promoInsightItem(item, meta) {
+        return `<button type="button" class="insight-row-button" data-promo-code="${promoInsightEscape(item.code)}" title="Tìm mã này trong danh sách"><span style="min-width:0"><span class="insight-code">${promoInsightEscape(item.code)}</span><span class="insight-name">${promoInsightEscape(item.name)}</span></span><span class="insight-meta">${promoInsightEscape(meta)}<br><i class="fa-solid fa-magnifying-glass" style="font-size:10px"></i> Xem mã</span></button>`;
+    }
+
+    function promoInsightBlockTitle(icon, label) {
+        return `<div class="insight-block-title"><i class="fa-solid ${icon}"></i>${promoInsightEscape(label)}</div>`;
+    }
+
+    function promoInsightEmpty(message) {
+        return `<div class="insight-empty"><i class="fa-solid fa-circle-info d-block fs-4 mb-2"></i>${promoInsightEscape(message)}</div>`;
+    }
+
+    function promoInsightGoToList(status = '', code = '') {
+        document.getElementById('promoSearch').value = code;
+        document.getElementById('promoTypeFilter').value = '';
+        document.getElementById('promoStatusFilter').value = status;
+        filterPromos();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('promoInsightModal')).hide();
+        document.getElementById('promoSearch').closest('.bento-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function openPromoInsight(kind) {
+        const list = promoInsightData;
+        const now = new Date();
+        const active = list.filter(p => p.status === 'active');
+        const upcoming = list.filter(p => p.status === 'upcoming');
+        const expired = list.filter(p => p.status === 'expired');
+        const hasUses = list.filter(p => p.used > 0);
+        const usages = list.reduce((sum, p) => sum + p.used, 0);
+        const soon = active.filter(p => promoInsightDate(p.end).getTime() - now.getTime() <= 7 * 86400000 && promoInsightDate(p.end).getTime() >= now.getTime());
+        const lowStock = active.filter(p => p.quantity !== null && p.quantity <= 20);
+        const definition = {
+            total: {title:'Toàn cảnh chiến dịch', sub:'Phân bổ chương trình và phạm vi áp dụng', icon:'fa-chart-pie', color:'#e11d48', action:'Xem tất cả khuyến mãi', status:''},
+            active: {title:'Trung tâm chiến dịch đang chạy', sub:'Ưu đãi đang có hiệu lực và những điểm cần chú ý', icon:'fa-bolt', color:'#059669', action:'Lọc khuyến mãi đang chạy', status:'active'},
+            used: {title:'Hiệu quả sử dụng voucher', sub:'Xếp hạng theo số lượt đã áp dụng', icon:'fa-chart-line', color:'#0284c7', action:'Xem danh sách voucher', status:''},
+            lifecycle: {title:'Lịch khuyến mãi & vòng đời', sub:'Theo dõi chương trình sắp diễn ra và đã dừng', icon:'fa-calendar-days', color:'#d97706', action:'Lọc chương trình sắp diễn ra', status:'upcoming'}
+        }[kind];
+        if (!definition) return;
+        document.getElementById('promoInsightBanner').style.setProperty('--insight-color', definition.color);
+        document.getElementById('promoInsightTitle').textContent = definition.title;
+        document.getElementById('promoInsightSubtitle').textContent = definition.sub;
+        document.getElementById('promoInsightIcon').className = 'fa-solid ' + definition.icon;
+        const metric = document.getElementById('promoInsightMetrics');
+        const left = document.getElementById('promoInsightLeft');
+        const right = document.getElementById('promoInsightRight');
+        const note = document.getElementById('promoInsightNote');
+        const action = document.getElementById('promoInsightMainAction');
+        action.innerHTML = `${promoInsightEscape(definition.action)} <i class="fa-solid fa-arrow-right ms-1"></i>`;
+        action.onclick = () => promoInsightGoToList(definition.status);
+
+        if (kind === 'total') {
+            const percentage = list.length ? Math.round(active.length / list.length * 100) : 0;
+            const global = list.filter(p => p.scope === 'Toàn hệ thống').length;
+            const percentType = list.filter(p => String(p.type).includes('%')).length;
+            note.textContent = `${percentage}% chương trình đang hoạt động. Thống kê này được tính từ danh sách khuyến mãi hiện có, không phải số liệu mô phỏng.`;
+            metric.innerHTML = promoInsightTile('Tổng chiến dịch',promoInsightNum.format(list.length),'Tất cả trạng thái') + promoInsightTile('Đang hoạt động',promoInsightNum.format(active.length),`${percentage}% tổng số`) + promoInsightTile('Toàn hệ thống',promoInsightNum.format(global),'Áp dụng nhiều chi nhánh');
+            left.innerHTML = promoInsightBlockTitle('fa-chart-simple','Cơ cấu trạng thái') + promoInsightBar('Đang chạy',active.length,list.length,'#10b981') + promoInsightBar('Sắp diễn ra',upcoming.length,list.length,'#3b82f6') + promoInsightBar('Kết thúc / hết lượt',expired.length,list.length,'#f59e0b') + `<div class="insight-chip">${percentType} giảm % · ${list.length-percentType} giảm tiền</div>`;
+            const recent = [...list].sort((a,b) => b.id-a.id).slice(0,5);
+            right.innerHTML = promoInsightBlockTitle('fa-clock-rotate-left','5 chương trình tạo gần đây') + (recent.length ? recent.map(p => promoInsightItem(p,p.statusLabel)).join('') : promoInsightEmpty('Chưa có khuyến mãi'));
+        } else if (kind === 'active') {
+            const nearest = [...active].sort((a,b) => promoInsightDate(a.end)-promoInsightDate(b.end)).slice(0,5);
+            const warnings = [...new Map([...soon,...lowStock].map(p=>[p.id,p])).values()].sort((a,b)=>promoInsightDate(a.end)-promoInsightDate(b.end)).slice(0,5);
+            note.textContent = soon.length || lowStock.length ? `Cần chú ý: ${soon.length} mã sẽ hết hạn trong 7 ngày và ${lowStock.length} mã còn tối đa 20 lượt. Một mã có thể thuộc cả hai nhóm.` : 'Chưa phát hiện ưu đãi đang chạy nào sắp hết hạn trong 7 ngày hoặc chỉ còn tối đa 20 lượt.';
+            metric.innerHTML = promoInsightTile('Đang chạy',promoInsightNum.format(active.length),'Có hiệu lực hiện tại') + promoInsightTile('Hết hạn ≤ 7 ngày',promoInsightNum.format(soon.length),'Cần kiểm tra thời hạn') + promoInsightTile('Sắp hết lượt',promoInsightNum.format(lowStock.length),'Còn tối đa 20 lượt');
+            left.innerHTML = promoInsightBlockTitle('fa-triangle-exclamation','Danh sách cần chú ý') + (warnings.length ? warnings.map(p=>promoInsightItem(p,p.quantity !== null && p.quantity <=20 ? `Còn ${p.quantity} lượt` : `Hết ${promoInsightDateText(p.end)}`)).join('') : promoInsightEmpty('Chưa có cảnh báo cần xử lý'));
+            right.innerHTML = promoInsightBlockTitle('fa-hourglass-half','5 ưu đãi gần hết hạn nhất') + (nearest.length ? nearest.map(p=>promoInsightItem(p,`Đến ${promoInsightDateText(p.end)}`)).join('') : promoInsightEmpty('Hiện chưa có khuyến mãi đang chạy'));
+        } else if (kind === 'used') {
+            const mostUsed = [...list].sort((a,b)=>b.used-a.used).filter(p=>p.used>0).slice(0,5);
+            const neverUsedActive = active.filter(p=>p.used===0).slice(0,5);
+            const peak = mostUsed.length ? mostUsed[0].used : 0;
+            note.textContent = 'Số lượt sử dụng lấy từ bộ đếm voucher hoặc hóa đơn đã hoàn thành (giữ nguyên cách tính hiện tại của hệ thống). Đây không phải tỷ lệ chuyển đổi khách hàng.';
+            metric.innerHTML = promoInsightTile('Tổng lượt áp dụng',promoInsightNum.format(usages),'Cộng các voucher') + promoInsightTile('Mã đã có lượt dùng',promoInsightNum.format(hasUses.length),'Ít nhất 1 lần') + promoInsightTile('Đang chạy chưa dùng',promoInsightNum.format(active.filter(p=>p.used===0).length),'Có thể cần quảng bá thêm');
+            left.innerHTML = promoInsightBlockTitle('fa-ranking-star','Top 5 voucher được dùng') + (mostUsed.length ? mostUsed.map(p=>promoInsightBar(p.code,p.used,peak,'#0ea5e9')).join('') : promoInsightEmpty('Chưa có dữ liệu lượt sử dụng'));
+            right.innerHTML = promoInsightBlockTitle('fa-lightbulb','Mã đang chạy chưa có lượt sử dụng') + (neverUsedActive.length ? neverUsedActive.map(p=>promoInsightItem(p,'0 lượt')).join('') : promoInsightEmpty('Tất cả mã đang chạy đều đã được dùng hoặc không có mã đang chạy'));
+        } else {
+            const soonest = [...upcoming].sort((a,b)=>promoInsightDate(a.start)-promoInsightDate(b.start)).slice(0,5);
+            const ended = [...expired].sort((a,b)=>promoInsightDate(b.end)-promoInsightDate(a.end)).slice(0,5);
+            const exhausted = expired.filter(p=>p.statusLabel==='Hết lượt').length;
+            note.textContent = `Có ${upcoming.length} chương trình sắp bắt đầu, ${expired.length} chương trình đã dừng, trong đó ${exhausted} mã hết lượt. Chọn từng mã để tìm nhanh hoặc dùng nút lọc trạng thái.`;
+            metric.innerHTML = promoInsightTile('Sắp diễn ra',promoInsightNum.format(upcoming.length),'Chờ đến ngày bắt đầu') + promoInsightTile('Đã dừng',promoInsightNum.format(expired.length),'Kết thúc hoặc hết lượt') + promoInsightTile('Hết lượt',promoInsightNum.format(exhausted),'Cần cân nhắc bổ sung');
+            left.innerHTML = promoInsightBlockTitle('fa-calendar-plus','5 chương trình sắp mở') + (soonest.length ? soonest.map(p=>promoInsightItem(p,`Từ ${promoInsightDateText(p.start)}`)).join('') : promoInsightEmpty('Không có chương trình sắp diễn ra')) + '<button type="button" class="insight-sub-action mt-2" data-promo-filter="upcoming">Xem tất cả sắp diễn ra</button>';
+            right.innerHTML = promoInsightBlockTitle('fa-calendar-xmark','5 chương trình đã dừng') + (ended.length ? ended.map(p=>promoInsightItem(p,p.statusLabel)).join('') : promoInsightEmpty('Chưa có chương trình kết thúc')) + '<button type="button" class="insight-sub-action mt-2" data-promo-filter="expired">Xem tất cả đã dừng</button>';
+        }
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('promoInsightModal')).show();
+    }
+
+    document.getElementById('promoInsightModal').addEventListener('click', function(event) {
+        const codeButton = event.target.closest('[data-promo-code]');
+        const filterButton = event.target.closest('[data-promo-filter]');
+        if (codeButton) promoInsightGoToList('',codeButton.dataset.promoCode);
+        else if (filterButton) promoInsightGoToList(filterButton.dataset.promoFilter);
+    });
+    const promoPageSize = 10;
+    let promoCurrentPage = 1;
+
+    function changePromoPage(page) {
+        promoCurrentPage = page;
+        filterPromos(false);
+    }
+
+    function renderPromoPagination(totalItems) {
+        const container = document.getElementById('promoPagination');
+        const totalPages = Math.ceil(totalItems / promoPageSize);
+        container.innerHTML = '';
+        if (totalPages === 0) return;
+
+        function addPageButton(label, page, disabled = false, active = false) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-sm ' + (active ? 'btn-danger' : 'btn-outline-secondary');
+            btn.textContent = label;
+            btn.disabled = disabled;
+            btn.addEventListener('click', () => changePromoPage(page));
+            container.appendChild(btn);
+        }
+
+        addPageButton('Trước', promoCurrentPage - 1, promoCurrentPage === 1);
+        const pages = totalPages <= 10
+            ? Array.from({ length: totalPages }, (_, i) => i + 1)
+            : [...new Set([1, 2, 3, promoCurrentPage - 1, promoCurrentPage, promoCurrentPage + 1, totalPages - 1, totalPages]
+                .filter(p => p >= 1 && p <= totalPages))].sort((a, b) => a - b);
+
+        pages.forEach((page, index) => {
+            if (index > 0 && page - pages[index - 1] > 1) {
+                const dots = document.createElement('span');
+                dots.className = 'px-1 text-muted';
+                dots.textContent = '…';
+                container.appendChild(dots);
+            }
+            addPageButton(String(page), page, false, page === promoCurrentPage);
+        });
+        addPageButton('Sau', promoCurrentPage + 1, promoCurrentPage === totalPages);
+    }
+
+    function filterPromos(resetPage = true) {
         const kw = document.getElementById('promoSearch').value.toLowerCase().trim();
         const type = document.getElementById('promoTypeFilter').value;
         const st = document.getElementById('promoStatusFilter').value;
-        let count = 0;
+        const rows = Array.from(document.querySelectorAll('.promo-row'));
 
-        document.querySelectorAll('.promo-row').forEach(r => {
+        const matchingRows = rows.filter(r => {
             const mKw = r.dataset.search.includes(kw);
             const mType = !type || r.dataset.type === type;
             const mSt = !st || r.dataset.status === st;
-            if (mKw && mType && mSt) {
-                r.style.display = '';
-                count++;
-            } else {
-                r.style.display = 'none';
-            }
+            return mKw && mType && mSt;
         });
 
-        document.getElementById('emptyPromoMsg').style.display = count === 0 ? '' : 'none';
+        if (resetPage) promoCurrentPage = 1;
+        const totalPages = Math.ceil(matchingRows.length / promoPageSize);
+        promoCurrentPage = Math.max(1, Math.min(promoCurrentPage, totalPages || 1));
+        rows.forEach(r => r.style.display = 'none');
+        const start = (promoCurrentPage - 1) * promoPageSize;
+        matchingRows.slice(start, start + promoPageSize).forEach(r => r.style.display = '');
+        document.getElementById('emptyPromoMsg').style.display = matchingRows.length === 0 ? '' : 'none';
+        renderPromoPagination(matchingRows.length);
     }
+
+    filterPromos();
 
     function openPromoModal() {
         document.getElementById('promoModalTitle').innerHTML = '<i class="fa-solid fa-tags text-danger me-2"></i>Thêm Chương trình Khuyến mãi';

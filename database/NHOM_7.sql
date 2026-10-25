@@ -2022,3 +2022,54 @@ INSERT INTO `thanhtoan` (`hoadon_id`, `phuong_thuc`, `so_tien_thanh_toan`) VALUE
 (58, 'Tiền mặt', 100000),
 (59, 'Tiền mặt', 100000),
 (60, 'Tiền mặt', 100000);
+
+INSERT INTO khuyenmai (cuahang_id, ten_km, ma_voucher, loai_km, gia_tri, so_luong, thoi_gian_bat_dau, thoi_gian_ket_thuc)
+SELECT
+    CASE seed.pham_vi
+        WHEN 'LAND' THEN (SELECT id FROM cuahang WHERE ten_cua_hang LIKE '%Vinpearl Land%' ORDER BY id LIMIT 1)
+        WHEN 'HARBOUR' THEN (SELECT id FROM cuahang WHERE ten_cua_hang LIKE '%Vinpearl Harbour%' ORDER BY id LIMIT 1)
+        WHEN 'FIRST' THEN (SELECT id FROM cuahang WHERE trang_thai = 1 ORDER BY id LIMIT 1)
+        ELSE NULL
+    END,
+    seed.ten_km,
+    seed.ma_voucher,
+    seed.loai_km,
+    seed.gia_tri,
+    seed.so_luong,
+    seed.thoi_gian_bat_dau,
+    seed.thoi_gian_ket_thuc
+FROM (
+    SELECT 'DEMO26CK01' AS ma_voucher, 'Ưu đãi thành viên mới - Giảm 8%' AS ten_km, 'Giảm %' AS loai_km, 8 AS gia_tri, 260 AS so_luong, '2026-10-01 00:00:00' AS thoi_gian_bat_dau, '2026-12-31 23:59:59' AS thoi_gian_ket_thuc, 'ALL' AS pham_vi
+    UNION ALL SELECT 'DEMO26CK02', 'Tuần lễ nước giải khát - Giảm 10%', 'Giảm %', 10, 240, '2026-11-01 00:00:00', '2027-01-31 23:59:59', 'HARBOUR'
+    UNION ALL SELECT 'DEMO26CK03', 'Mừng khai trương - Giảm 15.000đ', 'Giảm tiền', 15000, 180, '2026-07-01 00:00:00', '2026-09-30 23:59:59', 'LAND'
+    UNION ALL SELECT 'DEMO26CK04', 'Thứ Hai vui vẻ - Giảm 5.000đ', 'Giảm tiền', 5000, 350, '2026-10-01 00:00:00', '2026-12-31 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK05', 'Ưu đãi buổi sáng - Giảm 12%', 'Giảm %', 12, 210, '2026-11-01 00:00:00', '2027-01-31 23:59:59', 'FIRST'
+    UNION ALL SELECT 'DEMO26CK06', 'Mua sắm tiết kiệm - Giảm 7%', 'Giảm %', 7, 270, '2026-07-01 00:00:00', '2026-09-30 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK07', 'Quà tặng khách thân thiết - Giảm 20.000đ', 'Giảm tiền', 20000, 140, '2026-10-01 00:00:00', '2026-12-31 23:59:59', 'HARBOUR'
+    UNION ALL SELECT 'DEMO26CK08', 'Ngày hội đồ uống - Giảm 9%', 'Giảm %', 9, 260, '2026-11-01 00:00:00', '2027-01-31 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK09', 'Siêu ưu đãi cuối tháng - Giảm 18%', 'Giảm %', 18, 130, '2026-07-01 00:00:00', '2026-09-30 23:59:59', 'LAND'
+    UNION ALL SELECT 'DEMO26CK10', 'Ưu đãi cuối tuần - Giảm 10.000đ', 'Giảm tiền', 10000, 290, '2026-10-01 00:00:00', '2026-12-31 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK11', 'Tháng mua sắm vui vẻ - Giảm 11%', 'Giảm %', 11, 200, '2026-11-01 00:00:00', '2027-01-31 23:59:59', 'FIRST'
+    UNION ALL SELECT 'DEMO26CK12', 'Quà cảm ơn khách hàng - Giảm 6.000đ', 'Giảm tiền', 6000, 400, '2026-07-01 00:00:00', '2026-09-30 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK13', 'Giờ vàng tiện lợi - Giảm 14%', 'Giảm %', 14, 180, '2026-10-01 00:00:00', '2026-12-31 23:59:59', 'HARBOUR'
+    UNION ALL SELECT 'DEMO26CK14', 'Chào mùa lễ hội - Giảm 16%', 'Giảm %', 16, 210, '2026-11-01 00:00:00', '2027-01-31 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK15', 'Tiết kiệm mỗi ngày - Giảm 8.000đ', 'Giảm tiền', 8000, 340, '2026-07-01 00:00:00', '2026-09-30 23:59:59', 'LAND'
+    UNION ALL SELECT 'DEMO26CK16', 'Ưu đãi đồ ăn nhanh - Giảm 10%', 'Giảm %', 10, 220, '2026-10-01 00:00:00', '2026-12-31 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK17', 'Quà tặng tháng 11 - Giảm 12.000đ', 'Giảm tiền', 12000, 190, '2026-11-01 00:00:00', '2027-01-31 23:59:59', 'FIRST'
+    UNION ALL SELECT 'DEMO26CK18', 'Trải nghiệm cửa hàng mới - Giảm 5%', 'Giảm %', 5, 450, '2026-07-01 00:00:00', '2026-09-30 23:59:59', 'HARBOUR'
+    UNION ALL SELECT 'DEMO26CK19', 'Đại tiệc cuối năm - Giảm 15%', 'Giảm %', 15, 170, '2026-11-01 00:00:00', '2027-01-31 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK20', 'Vui mua cùng bạn bè - Giảm 7.000đ', 'Giảm tiền', 7000, 330, '2026-10-01 00:00:00', '2026-12-31 23:59:59', 'LAND'
+    UNION ALL SELECT 'DEMO26CK21', 'Ưu đãi khách hàng thân thiết - Giảm 13%', 'Giảm %', 13, 210, '2026-07-01 00:00:00', '2026-09-30 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK22', 'Săn deal cuối tuần - Giảm 9.000đ', 'Giảm tiền', 9000, 260, '2026-11-01 00:00:00', '2027-01-31 23:59:59', 'HARBOUR'
+    UNION ALL SELECT 'DEMO26CK23', 'Mùa mua sắm rộn ràng - Giảm 6%', 'Giảm %', 6, 370, '2026-10-01 00:00:00', '2026-12-31 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK24', 'Combo thức uống - Giảm 11.000đ', 'Giảm tiền', 11000, 190, '2026-07-01 00:00:00', '2026-09-30 23:59:59', 'FIRST'
+    UNION ALL SELECT 'DEMO26CK25', 'Ngày hội khách hàng - Giảm 17%', 'Giảm %', 17, 170, '2026-11-01 00:00:00', '2027-01-31 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK26', 'Deal tiện lợi mỗi ngày - Giảm 4.000đ', 'Giảm tiền', 4000, 500, '2026-10-01 00:00:00', '2026-12-31 23:59:59', 'LAND'
+    UNION ALL SELECT 'DEMO26CK27', 'Ưu đãi cuối hè - Giảm 12%', 'Giảm %', 12, 250, '2026-07-01 00:00:00', '2026-09-30 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK28', 'Đón Giáng sinh - Giảm 20%', 'Giảm %', 20, 150, '2026-11-01 00:00:00', '2027-01-31 23:59:59', 'HARBOUR'
+    UNION ALL SELECT 'DEMO26CK29', 'Cảm ơn khách hàng - Giảm 6%', 'Giảm %', 6, 300, '2026-10-01 00:00:00', '2026-12-31 23:59:59', 'ALL'
+    UNION ALL SELECT 'DEMO26CK30', 'Mừng sinh nhật chi nhánh - Giảm 25.000đ', 'Giảm tiền', 25000, 120, '2026-07-01 00:00:00', '2026-09-30 23:59:59', 'FIRST'
+    UNION ALL SELECT 'DEMO26CK31', 'Chào năm mới - Giảm 15.000đ', 'Giảm tiền', 15000, 250, '2026-11-01 00:00:00', '2027-01-31 23:59:59', 'ALL'
+) AS seed
+LEFT JOIN khuyenmai AS existing ON existing.ma_voucher = seed.ma_voucher
+WHERE existing.id IS NULL;
