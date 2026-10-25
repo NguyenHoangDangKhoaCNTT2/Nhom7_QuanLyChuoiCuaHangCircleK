@@ -91,7 +91,10 @@ require ROOT_PATH . '/includes/header.php';
         </div>
         <div class="segmented-control" role="group"><button type="button" class="seg-btn active">7 Ngày</button><button type="button" class="seg-btn">30 Ngày</button><button type="button" class="seg-btn">Quý này</button></div>
     </div>
-<div class="placeholder-box" style="min-height: 300px;"><i class="fa-solid fa-chart-line"></i><span>Biểu đồ đường doanh thu — vẽ bằng Chart.js, dùng CK trong charts-default.js</span></div>
+    <!-- Canvas Biểu đồ đường -->
+    <div style="height: 300px; position: relative;">
+        <canvas id="revenueLineChart"></canvas>
+    </div>
 </div>
     </div>
     <div class="col-12 col-xl-4">
@@ -106,7 +109,10 @@ require ROOT_PATH . '/includes/header.php';
         </div>
         
     </div>
-<div class="placeholder-box" style="min-height: 300px;"><i class="fa-solid fa-chart-pie"></i><span>Biểu đồ tròn theo danh mục</span></div>
+    <!-- Canvas Biểu đồ tròn -->
+    <div style="height: 300px; position: relative;">
+        <canvas id="revenuePieChart"></canvas>
+    </div>
 </div>
     </div>
 </div>
@@ -132,5 +138,88 @@ require ROOT_PATH . '/includes/header.php';
         </table>
     </div>
 </div>
+
+<!-- Script khởi tạo biểu đồ và tương tác lọc số liệu động -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // 1. Khởi tạo biểu đồ đường (Line Chart) và lưu vào biến revenueChart
+        const lineCtx = document.getElementById('revenueLineChart').getContext('2d');
+        let revenueChart = new Chart(lineCtx, {
+            type: 'line',
+            data: {
+                labels: ['Ngày -6', 'Ngày -5', 'Ngày -4', 'Ngày -3', 'Ngày -2', 'Hôm qua', 'Hôm nay'],
+                datasets: [{
+                    label: 'Doanh thu (VNĐ)',
+                    data: [12500000, 14200000, 11800000, 15600000, 13400000, 16800000, 19500000],
+                    borderColor: '#e11d48',
+                    backgroundColor: 'rgba(225, 29, 72, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4 
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        // 2. Khai báo bộ số liệu giả lập cho các khoảng thời gian
+        const chartData = {
+            '7 Ngày': {
+                labels: ['Ngày -6', 'Ngày -5', 'Ngày -4', 'Ngày -3', 'Ngày -2', 'Hôm qua', 'Hôm nay'],
+                data: [12500000, 14200000, 11800000, 15600000, 13400000, 16800000, 19500000]
+            },
+            '30 Ngày': {
+                labels: ['Tuần 1', 'Tuần 2', 'Tuần 3', 'Tuần 4'],
+                data: [85000000, 92000000, 78000000, 105000000]
+            },
+            'Quý này': {
+                labels: ['Tháng 7', 'Tháng 8', 'Tháng 9'],
+                data: [350000000, 420000000, 380000000]
+            }
+        };
+
+        // 3. Bắt sự kiện click vào các nút lọc thời gian
+        const revenueButtons = document.querySelectorAll('.bento-panel.d-1 .seg-btn');
+        revenueButtons.forEach(btn => {
+            btn.addEventListener('click', function() {
+                // Đổi trạng thái hiển thị của nút
+                revenueButtons.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+
+                // Lấy tên nút được bấm và cập nhật lại biểu đồ
+                let timeRange = this.innerText.trim();
+                if(chartData[timeRange]) {
+                    revenueChart.data.labels = chartData[timeRange].labels;
+                    revenueChart.data.datasets[0].data = chartData[timeRange].data;
+                    revenueChart.update(); // Lệnh vẽ lại biểu đồ với hiệu ứng trượt
+                }
+            });
+        });
+
+        // 4. Vẽ biểu đồ tròn (Pie Chart) giữ nguyên
+        const pieCtx = document.getElementById('revenuePieChart').getContext('2d');
+        new Chart(pieCtx, {
+            type: 'pie',
+            data: {
+                labels: ['Nước giải khát', 'Đồ ăn nhanh', 'Bánh kẹo', 'Khác'],
+                datasets: [{
+                    data: [45, 25, 20, 10],
+                    backgroundColor: ['#0ea5e9', '#e11d48', '#f59e0b', '#10b981']
+                }]
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+    });
+</script>
 
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

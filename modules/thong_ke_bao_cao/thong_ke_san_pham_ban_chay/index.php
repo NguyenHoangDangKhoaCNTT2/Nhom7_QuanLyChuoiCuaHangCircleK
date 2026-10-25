@@ -82,12 +82,112 @@ require ROOT_PATH . '/includes/header.php';
             </h5>
             <div class="panel-subtitle ms-5">Số lượng bán theo ngày của sản phẩm chọn</div>
         </div>
-        <div class="segmented-control" role="group"><button type="button" class="seg-btn active">7 Ngày</button><button type="button" class="seg-btn">30 Ngày</button><button type="button" class="seg-btn">Quý này</button></div>
+        <!-- Thêm class và id vào các nút bấm -->
+        <div class="segmented-control time-filter" role="group">
+            <button type="button" class="seg-btn active">7 Ngày</button>
+            <button type="button" class="seg-btn">30 Ngày</button>
+            <button type="button" class="seg-btn">Quý này</button>
+        </div>
     </div>
-    <div class="d-flex flex-wrap align-items-center gap-2 mb-3"><select class="form-select" style="width: auto;"><option>Tất cả danh mục</option><option>Đồ uống</option><option>Đồ ăn</option><option>Snack</option></select></div>
-    <div class="placeholder-box" style="min-height: 300px;"><i class="fa-solid fa-chart-line"></i><span>Biểu đồ xu hướng — vẽ bằng Chart.js, dùng CK trong charts-default.js</span></div>
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <!-- Đã thêm ID 'categoryFilter' và value vào select -->
+        <select class="form-select" style="width: auto;" id="categoryFilter">
+            <option value="all">Tất cả danh mục</option>
+            <option value="douong">Đồ uống</option>
+            <option value="doan">Đồ ăn</option>
+            <option value="snack">Snack</option>
+        </select>
+    </div>
+    <!-- Thay thế hộp trống bằng Canvas biểu đồ -->
+    <div style="height: 300px; position: relative;">
+        <canvas id="salesTrendChart"></canvas>
+    </div>
 </div>
     </div>
 </div>
+
+<!-- Tích hợp Chart.js và script điều khiển số liệu -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const ctx = document.getElementById('salesTrendChart').getContext('2d');
+    
+    // 1. Khởi tạo biểu đồ đường
+    let trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ['Ngày -6', 'Ngày -5', 'Ngày -4', 'Ngày -3', 'Ngày -2', 'Hôm qua', 'Hôm nay'],
+            datasets: [{
+                label: 'Số lượng bán',
+                data: [482, 391, 356, 274, 219, 310, 450],
+                borderColor: '#0ea5e9',
+                backgroundColor: 'rgba(14, 165, 233, 0.1)',
+                borderWidth: 2.5,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+
+    // 2. Bộ dữ liệu giả lập cho từng Khoảng thời gian và Danh mục
+    const salesData = {
+        '7 Ngày': {
+            'labels': ['Ngày -6', 'Ngày -5', 'Ngày -4', 'Ngày -3', 'Ngày -2', 'Hôm qua', 'Hôm nay'],
+            'all': [482, 391, 356, 274, 219, 310, 450],
+            'douong': [250, 200, 180, 150, 120, 160, 220],
+            'doan': [182, 150, 136, 104, 79, 120, 180],
+            'snack': [50, 41, 40, 20, 20, 30, 50]
+        },
+        '30 Ngày': {
+            'labels': ['Tuần 1', 'Tuần 2', 'Tuần 3', 'Tuần 4'],
+            'all': [1800, 1500, 1950, 2100],
+            'douong': [900, 750, 950, 1100],
+            'doan': [700, 600, 800, 850],
+            'snack': [200, 150, 200, 150]
+        },
+        'Quý này': {
+            'labels': ['Tháng 8', 'Tháng 9', 'Tháng 10'],
+            'all': [5200, 6100, 5800],
+            'douong': [2600, 3100, 2900],
+            'doan': [2000, 2400, 2300],
+            'snack': [600, 600, 600]
+        }
+    };
+
+    // 3. Hàm cập nhật biểu đồ chung
+    function updateChart() {
+        // Lấy khoảng thời gian đang được chọn (nút active)
+        const activePeriod = document.querySelector('.time-filter .seg-btn.active').innerText.trim();
+        // Lấy danh mục đang được chọn
+        const selectedCategory = document.getElementById('categoryFilter').value;
+
+        // Cập nhật trục X và Data
+        if (salesData[activePeriod]) {
+            trendChart.data.labels = salesData[activePeriod].labels;
+            trendChart.data.datasets[0].data = salesData[activePeriod][selectedCategory];
+            trendChart.update();
+        }
+    }
+
+    // 4. Bắt sự kiện click vào nút thời gian
+    const timeButtons = document.querySelectorAll('.time-filter .seg-btn');
+    timeButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            timeButtons.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            updateChart();
+        });
+    });
+
+    // 5. Bắt sự kiện thay đổi dropdown danh mục
+    document.getElementById('categoryFilter').addEventListener('change', updateChart);
+});
+</script>
 
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

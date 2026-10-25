@@ -25,7 +25,7 @@ require ROOT_PATH . '/includes/header.php';
         <div class="col-md-3"><label class="form-label" for="lbCh">Cửa hàng</label><select class="form-select" id="lbCh"><option>Toàn chuỗi</option><option>Circle K Quận 1</option><option>Circle K Quận 3</option></select></div>
         <div class="col-md-3"><label class="form-label" for="lbLoai">Loại báo cáo</label><select class="form-select" id="lbLoai"><option>Doanh thu</option><option>Sản phẩm bán chạy</option><option>Tồn kho</option><option>Khách hàng</option></select></div>
     </div>
-    <div class="d-flex justify-content-end gap-2 mt-3"><button type="button" class="btn-ck btn-ck-soft"><i class="fa-solid fa-file-export"></i> Xuất Excel</button><button type="button" class="btn-ck btn-ck-primary"><i class="fa-solid fa-magnifying-glass-chart"></i> Áp dụng bộ lọc</button></div>
+    <div class="d-flex justify-content-end gap-2 mt-3"><button type="button" id="btnExport" class="btn-ck btn-ck-soft"><i class="fa-solid fa-file-export"></i> Xuất Excel</button><button type="button" class="btn-ck btn-ck-primary"><i class="fa-solid fa-magnifying-glass-chart"></i> Áp dụng bộ lọc</button></div>
 </div>
 
 <div class="bento-panel fade-up d-1 mt-4">
@@ -40,7 +40,7 @@ require ROOT_PATH . '/includes/header.php';
         
     </div>
     <div class="table-responsive">
-        <table class="table table-modern mb-0">
+        <table id="reportTable" class="table table-modern mb-0">
             <thead><tr><th>Ngày</th><th>Cửa hàng</th><th class="text-end">Số đơn</th><th class="text-end">Doanh thu</th><th>Tăng trưởng</th></tr></thead>
             <tbody>
                 <tr><td><?php echo date('d/m/Y'); ?></td><td>Circle K Quận 1</td><td class="text-end"><span class="num-font fw-bold ">652</span></td><td class="text-end"><span class="num-font fw-bold ">56,452,500 ₫</span></td><td><span class="trend-pill trend-up"><i class="fa-solid fa-arrow-trend-up"></i> 8.5%</span></td></tr>
@@ -49,7 +49,9 @@ require ROOT_PATH . '/includes/header.php';
         </table>
     </div>
 </div>
+
 <script>
+    // Xử lý hiệu ứng chọn nút thời gian
     document.querySelectorAll('.segmented-control').forEach(control => {
         const buttons = control.querySelectorAll('.seg-btn');
         buttons.forEach(btn => {
@@ -58,6 +60,25 @@ require ROOT_PATH . '/includes/header.php';
                 this.classList.add('active');
             });
         });
+    });
+
+    // Xử lý xuất dữ liệu bảng ra file Excel (CSV)
+    document.getElementById("btnExport").addEventListener("click", function() {
+        let table = document.getElementById("reportTable");
+        let rows = table.querySelectorAll("tr");
+        let csv = [];
+        for (let i = 0; i < rows.length; i++) {
+            let row = [], cols = rows[i].querySelectorAll("td, th");
+            for (let j = 0; j < cols.length; j++) row.push(cols[j].innerText);
+            csv.push(row.join(","));
+        }
+        let csvContent = "data:text/csv;charset=utf-8,\uFEFF" + csv.join("\n");
+        let encodedUri = encodeURI(csvContent);
+        let link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "bao_cao_circle_k.csv");
+        document.body.appendChild(link);
+        link.click();
     });
 </script>
 
