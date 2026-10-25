@@ -16,17 +16,9 @@ try {
     die("Lỗi kết nối CSDL: " . $e->getMessage());
 }
 
-try {
-    $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_khach_dua DECIMAL(12,2) NULL");
-} catch (Exception $e) { }
-
-try {
-    $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_thoi DECIMAL(12,2) NULL");
-} catch (Exception $e) { }
-
-try {
-    $pdo->exec("ALTER TABLE khuyenmai ADD COLUMN so_luong_da_dung INT DEFAULT 0");
-} catch (Exception $e) { }
+try { $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_khach_dua DECIMAL(12,2) NULL"); } catch (Exception $e) { }
+try { $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_thoi DECIMAL(12,2) NULL"); } catch (Exception $e) { }
+try { $pdo->exec("ALTER TABLE khuyenmai ADD COLUMN so_luong_da_dung INT DEFAULT 0"); } catch (Exception $e) { }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'confirm_payment') {
     header('Content-Type: application/json; charset=utf-8');
@@ -87,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 $hoadon_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($hoadon_id > 0) {
-    $stmt = $pdo->prepare("SELECT hd.*, ch.ten_cua_hang, ch.dia_chi AS dia_chi_ch, nv.ho_ten AS ten_nv, kh.ho_ten AS ten_kh, kh.so_dien_thoai AS sdt_kh, ttd.hang_the 
+    $stmt = $pdo->prepare("SELECT hd.*, ch.ten_cua_hang, ch.dia_chi AS dia_chi_ch, ch.so_dien_thoai AS sdt_ch, nv.ho_ten AS ten_nv, kh.ho_ten AS ten_kh, kh.so_dien_thoai AS sdt_kh, ttd.hang_the 
                            FROM hoadon hd 
                            LEFT JOIN cuahang ch ON hd.cuahang_id = ch.id 
                            LEFT JOIN nhanvien nv ON hd.nhanvien_id = nv.id 
@@ -97,7 +89,7 @@ if ($hoadon_id > 0) {
     $stmt->execute([$hoadon_id]);
     $order = $stmt->fetch();
 } else {
-    $order = $pdo->query("SELECT hd.*, ch.ten_cua_hang, ch.dia_chi AS dia_chi_ch, nv.ho_ten AS ten_nv, kh.ho_ten AS ten_kh, kh.so_dien_thoai AS sdt_kh, ttd.hang_the 
+    $order = $pdo->query("SELECT hd.*, ch.ten_cua_hang, ch.dia_chi AS dia_chi_ch, ch.so_dien_thoai AS sdt_ch, nv.ho_ten AS ten_nv, kh.ho_ten AS ten_kh, kh.so_dien_thoai AS sdt_kh, ttd.hang_the 
                           FROM hoadon hd 
                           LEFT JOIN cuahang ch ON hd.cuahang_id = ch.id 
                           LEFT JOIN nhanvien nv ON hd.nhanvien_id = nv.id 
@@ -119,20 +111,14 @@ if ($order) {
 
 if (!$order) {
     $order = [
-        'id' => 1,
-        'tong_tien' => 45000,
-        'tien_giam_gia' => 0,
-        'khach_phai_tra' => 48600,
-        'ten_cua_hang' => 'Circle K - Trần Phú',
-        'dia_chi_ch' => '76 Trần Phú, Lộc Thọ, Nha Trang',
-        'ten_nv' => 'Nguyễn Phương Nam',
-        'ten_kh' => 'Khách lẻ (Vãng lai)',
-        'hang_the' => null,
-        'ngay_tao' => date('Y-m-d H:i:s')
+        'id' => 1, 'tong_tien' => 45000, 'tien_giam_gia' => 0, 'khach_phai_tra' => 48600,
+        'ten_cua_hang' => 'Circle K - Trần Phú', 'dia_chi_ch' => '76 Trần Phú, Lộc Thọ, Nha Trang',
+        'sdt_ch' => '1900 3110', 'ten_nv' => 'Nguyễn Phương Nam', 'ten_kh' => 'Khách lẻ',
+        'hang_the' => null, 'ngay_tao' => date('Y-m-d H:i:s')
     ];
     $items = [
-        ['ten_san_pham' => 'Xúc xích nướng Đức', 'ma_san_pham' => 'SP007', 'so_luong' => 1, 'don_gia' => 20000, 'thanh_tien' => 20000, 'ten_danh_muc' => 'Đồ ăn'],
-        ['ten_san_pham' => 'Trà đào cam sả Circle K', 'ma_san_pham' => 'SP008', 'so_luong' => 1, 'don_gia' => 25000, 'thanh_tien' => 25000, 'ten_danh_muc' => 'Đồ uống'],
+        ['ten_san_pham' => 'Xúc xích nướng Đức', 'ma_san_pham' => 'SP007', 'so_luong' => 1, 'don_gia' => 20000, 'thanh_tien' => 20000],
+        ['ten_san_pham' => 'Trà đào cam sả', 'ma_san_pham' => 'SP008', 'so_luong' => 1, 'don_gia' => 25000, 'thanh_tien' => 25000],
     ];
 }
 
@@ -149,228 +135,75 @@ require ROOT_PATH . '/includes/header.php';
 ?>
 
 <style>
-    .pay-opt-card {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        padding: 16px 20px;
-        border: 1.5px solid var(--border-light);
-        border-radius: 16px;
-        margin-bottom: 12px;
-        cursor: pointer;
-        transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-        background: #fff;
-        position: relative;
-    }
-    .pay-opt-card:hover {
-        border-color: #cbd5e1;
-        transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(0,0,0,0.04);
-    }
-    .pay-opt-card.active {
-        border-color: var(--ck-red);
-        background: linear-gradient(180deg, rgba(238, 49, 36, 0.04), #fff);
-        box-shadow: 0 8px 24px rgba(238, 49, 36, 0.08);
-    }
-    .pay-opt-card input[type="radio"] {
-        accent-color: var(--ck-red);
-        width: 20px;
-        height: 20px;
-        cursor: pointer;
-    }
-    .pay-icon-box {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.35rem;
-        flex-shrink: 0;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-    }
-    .quick-tag {
-        font-size: 0.7rem;
-        font-weight: 700;
-        padding: 3px 8px;
-        border-radius: 99px;
-        letter-spacing: 0.3px;
-    }
+    .pay-opt-card { display: flex; align-items: center; gap: 16px; padding: 16px 20px; border: 1.5px solid var(--border-light); border-radius: 16px; margin-bottom: 12px; cursor: pointer; transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1); background: #fff; position: relative; }
+    .pay-opt-card:hover { border-color: #cbd5e1; transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.04); }
+    .pay-opt-card.active { border-color: var(--ck-red); background: linear-gradient(180deg, rgba(238, 49, 36, 0.04), #fff); box-shadow: 0 8px 24px rgba(238, 49, 36, 0.08); }
+    .pay-opt-card input[type="radio"] { accent-color: var(--ck-red); width: 20px; height: 20px; cursor: pointer; }
+    .pay-icon-box { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.35rem; flex-shrink: 0; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    .quick-tag { font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 99px; letter-spacing: 0.3px; }
+    .quick-cash-chip { border: 1px solid var(--border-light); background: #fff; border-radius: 10px; padding: 8px 16px; font-size: 0.88rem; font-weight: 700; color: #334155; cursor: pointer; transition: all 0.15s; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+    .quick-cash-chip:hover { background: #f1f5f9; border-color: #cbd5e1; transform: translateY(-1px); }
+    
+    /* Các style QR và Mockup thẻ giữ nguyên */
+    .vietqr-card { background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 20px; padding: 24px; max-width: 380px; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.06); }
+    .qr-frame { position: relative; width: 220px; height: 220px; margin: 0 auto 16px; padding: 10px; background: #fff; border-radius: 16px; border: 2px solid #e2e8f0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .qr-copy-row { background: #f8fafc; border-radius: 10px; padding: 8px 12px; font-size: 0.82rem; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border: 1px solid #f1f5f9; }
+    .momo-card { background: linear-gradient(135deg, #a50064, #d82d8b); border-radius: 20px; padding: 24px; max-width: 380px; margin: 0 auto; color: #fff; box-shadow: 0 12px 32px rgba(165, 0, 100, 0.25); }
+    .momo-qr-box { background: #fff; padding: 12px; border-radius: 16px; width: 210px; height: 210px; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; }
+    .card-emv-mockup { background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 20px; padding: 24px; max-width: 380px; margin: 0 auto; color: #fff; box-shadow: 0 14px 36px rgba(15, 23, 42, 0.3); position: relative; overflow: hidden; }
+    .emv-chip { width: 44px; height: 32px; background: linear-gradient(135deg, #fbbf24, #d97706); border-radius: 6px; display: inline-block; }
 
-    .quick-cash-chip {
-        border: 1px solid var(--border-light);
-        background: #fff;
-        border-radius: 10px;
-        padding: 8px 16px;
-        font-size: 0.88rem;
-        font-weight: 700;
-        color: #334155;
-        cursor: pointer;
-        transition: all 0.15s;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-    }
-    .quick-cash-chip:hover {
-        background: #f1f5f9;
-        border-color: #cbd5e1;
-        transform: translateY(-1px);
-    }
-
-    .vietqr-card {
-        background: #ffffff;
-        border: 1.5px solid #e2e8f0;
-        border-radius: 20px;
-        padding: 24px;
-        max-width: 380px;
-        margin: 0 auto;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.06);
-    }
-    .vietqr-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding-bottom: 12px;
-        margin-bottom: 16px;
-        border-bottom: 1.5px dashed #e2e8f0;
-    }
-    .qr-frame {
-        position: relative;
-        width: 220px;
-        height: 220px;
-        margin: 0 auto 16px;
-        padding: 10px;
-        background: #fff;
-        border-radius: 16px;
-        border: 2px solid #e2e8f0;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.04);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-    }
-    .qr-scan-beam {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 3px;
-        background: linear-gradient(90deg, transparent, #2563eb, #38bdf8, transparent);
-        box-shadow: 0 0 12px #38bdf8;
-        animation: beamSweep 2.2s infinite ease-in-out;
-    }
-    @keyframes beamSweep {
-        0% { top: 0%; opacity: 0; }
-        15% { opacity: 1; }
-        85% { opacity: 1; }
-        100% { top: 100%; opacity: 0; }
-    }
-    .qr-copy-row {
-        background: #f8fafc;
-        border-radius: 10px;
-        padding: 8px 12px;
-        font-size: 0.82rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 6px;
-        border: 1px solid #f1f5f9;
-    }
-    .btn-copy-mini {
-        border: none;
-        background: transparent;
-        color: #64748b;
-        cursor: pointer;
-        padding: 2px 6px;
-        border-radius: 4px;
-        transition: 0.15s;
-    }
-    .btn-copy-mini:hover {
-        background: #e2e8f0;
-        color: var(--ck-red);
-    }
-
-    .momo-card {
-        background: linear-gradient(135deg, #a50064, #d82d8b);
-        border-radius: 20px;
-        padding: 24px;
-        max-width: 380px;
-        margin: 0 auto;
-        color: #fff;
-        box-shadow: 0 12px 32px rgba(165, 0, 100, 0.25);
-    }
-    .momo-qr-box {
-        background: #fff;
-        padding: 12px;
-        border-radius: 16px;
-        width: 210px;
-        height: 210px;
-        margin: 0 auto 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-    }
-
-    .card-emv-mockup {
-        background: linear-gradient(135deg, #1e293b, #0f172a);
-        border-radius: 20px;
-        padding: 24px;
-        max-width: 380px;
-        margin: 0 auto;
-        color: #fff;
-        box-shadow: 0 14px 36px rgba(15, 23, 42, 0.3);
-        position: relative;
-        overflow: hidden;
-    }
-    .card-emv-mockup::before {
-        content: '';
-        position: absolute;
-        top: -40px;
-        right: -40px;
-        width: 160px;
-        height: 160px;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(238,49,36,0.3), transparent 70%);
-    }
-    .emv-chip {
-        width: 44px;
-        height: 32px;
-        background: linear-gradient(135deg, #fbbf24, #d97706);
-        border-radius: 6px;
-        display: inline-block;
-        border: 1px solid rgba(255,255,255,0.4);
-    }
-    .radar-pulse-ring {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 60px;
-        height: 60px;
-        border-radius: 50%;
-        background: rgba(14,165,233,0.15);
-        color: #0ea5e9;
-        font-size: 1.8rem;
-        animation: radarPing 1.8s infinite;
-    }
-    @keyframes radarPing {
-        0% { box-shadow: 0 0 0 0 rgba(14,165,233,0.4); }
-        70% { box-shadow: 0 0 0 18px rgba(14,165,233,0); }
-        100% { box-shadow: 0 0 0 0 rgba(14,165,233,0); }
-    }
-
+    /* STYLE CHO BILL IN RA (THIẾT KẾ MỚI) */
     .receipt-print-box {
         background: #fff;
-        border: 1px dashed #cbd5e1;
-        border-radius: 14px;
-        padding: 24px;
-        font-family: 'Courier New', Courier, monospace;
-        color: #0f172a;
-        max-width: 400px;
+        border: 1px solid #cbd5e1;
+        border-radius: 0px; /* Bill thật không bo góc */
+        padding: 20px;
+        font-family: 'Courier New', Courier, monospace; /* Font máy in nhiệt */
+        color: #000;
+        max-width: 360px;
         margin: 0 auto;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        font-size: 0.85rem;
+        line-height: 1.4;
     }
+    .receipt-print-box .dashed-line {
+        border-bottom: 1px dashed #000;
+        margin: 12px 0;
+    }
+    .receipt-print-box .brand-logo {
+        font-family: 'Arial Black', Arial, sans-serif;
+        font-size: 1.5rem;
+        font-weight: 900;
+        letter-spacing: -1px;
+        margin-bottom: 5px;
+        text-transform: uppercase;
+    }
+    
     @media print {
+        @page { margin: 0; size: 80mm auto; } /* Khổ giấy in nhiệt 80mm */
         body * { visibility: hidden; }
-        #printableBill, #printableBill * { visibility: visible; }
-        #printableBill { position: absolute; left: 0; top: 0; width: 100%; border: none; }
+        
+        /* Ẩn giao diện web, chỉ hiện modal in */
+        .modal { position: absolute; left: 0; top: 0; margin: 0; padding: 0; min-height: 550px; visibility: visible; }
+        .modal-dialog { margin: 0; padding: 0; max-width: 100%; width: 100%; }
+        .modal-content { border: none; box-shadow: none; background: transparent; }
+        .modal-backdrop, .modal-body > h4, .modal-body > .text-muted, .modal-body > .text-success, .modal-body > .d-flex.gap-2 { display: none !important; }
+        
+        #printableBill, #printableBill * { visibility: visible; color: #000 !important; }
+        #printableBill {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 78mm !important; /* Vừa vặn khổ 80mm */
+            max-width: 78mm !important;
+            padding: 2mm !important;
+            margin: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            font-size: 11px !important; /* Font nhỏ lại để vừa giấy */
+        }
+        #printableBill .dashed-line { margin: 8px 0 !important; }
     }
 </style>
 
@@ -487,43 +320,13 @@ require ROOT_PATH . '/includes/header.php';
                     </div>
 
                     <div class="qr-frame">
-                        <div class="qr-scan-beam"></div>
                         <img src="https://img.vietqr.io/image/MB-02583520111-compact2.png?amount=<?= (int)$grandTotal ?>&addInfo=<?= urlencode($orderCode) ?>&accountName=CIRCLE%20K%20VIETNAM" 
                              alt="VietQR Code" style="width:100%; height:100%; object-fit:contain;"
                              onerror="this.onerror=null; this.src='https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=CIRCLEK_VNPAY_<?= (int)$grandTotal ?>';">
                     </div>
-
-                    <div class="text-center mb-3">
-                        <span class="badge bg-light text-dark border px-3 py-1 font-monospace" id="vnpayTimer">
-                            <i class="fa-regular fa-clock me-1 text-danger"></i>Hết hạn trong: 14:59
-                        </span>
-                    </div>
-
-                    <div class="qr-copy-row">
-                        <span class="text-muted">Chủ tài khoản:</span>
-                        <strong class="text-dark">CIRCLE K VIETNAM</strong>
-                    </div>
-                    <div class="qr-copy-row">
-                        <span class="text-muted">Số tài khoản:</span>
-                        <div class="d-flex align-items-center gap-1">
-                            <strong class="text-primary font-monospace">0258 3520 111</strong>
-                            <button type="button" class="btn-copy-mini" onclick="copySnippet('02583520111', this)" title="Sao chép STK"><i class="fa-regular fa-copy"></i></button>
-                        </div>
-                    </div>
-                    <div class="qr-copy-row">
-                        <span class="text-muted">Nội dung CK:</span>
-                        <div class="d-flex align-items-center gap-1">
-                            <strong class="text-danger font-monospace"><?= htmlspecialchars($orderCode) ?></strong>
-                            <button type="button" class="btn-copy-mini" onclick="copySnippet('<?= htmlspecialchars($orderCode) ?>', this)" title="Sao chép nội dung"><i class="fa-regular fa-copy"></i></button>
-                        </div>
-                    </div>
                     <div class="qr-copy-row bg-white border-0 pt-2">
                         <span class="fw-semibold text-muted">Số tiền thanh toán:</span>
                         <strong class="num-font text-danger fs-5"><?= number_format($grandTotal) ?> ₫</strong>
-                    </div>
-
-                    <div class="small text-muted mt-2" style="font-size:0.75rem;">
-                        <i class="fa-solid fa-shield-halved text-success me-1"></i>Hệ thống tự động xác nhận sau khi khách quét mã
                     </div>
                 </div>
             </div>
@@ -538,42 +341,17 @@ require ROOT_PATH . '/includes/header.php';
                                 <div style="font-size:0.72rem; opacity:0.85;">Ví điện tử số 1 Việt Nam</div>
                             </div>
                         </div>
-                        <span class="badge bg-white text-dark font-monospace">Instant</span>
                     </div>
-
                     <div class="momo-qr-box">
                         <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=2|99|0905123456|CircleK|NhaTrang|0|0|<?= (int)$grandTotal ?>|<?= urlencode($orderCode) ?>|transfer_p2p" 
                              alt="MoMo QR Code" style="width:100%; height:100%; object-fit:contain;">
                     </div>
-
                     <div class="fw-bold fs-4 num-font mb-1"><?= number_format($grandTotal) ?> ₫</div>
-                    <div class="small text-white-50 font-monospace mb-3">Mã đơn: <?= htmlspecialchars($orderCode) ?></div>
-
-                    <div class="p-2 rounded-3 text-start small" style="background: rgba(255,255,255,0.15);">
-                        <div class="d-flex align-items-center gap-2 mb-1">
-                            <i class="fa-solid fa-mobile-screen"></i>
-                            <span>1. Mở ứng dụng <strong>MoMo</strong> trên điện thoại</span>
-                        </div>
-                        <div class="d-flex align-items-center gap-2 mb-1">
-                            <i class="fa-solid fa-qrcode"></i>
-                            <span>2. Chọn <strong>"Quét mã"</strong> hướng camera vào mã QR</span>
-                        </div>
-                        <div class="d-flex align-items-center gap-2">
-                            <i class="fa-solid fa-check"></i>
-                            <span>3. Bấm xác nhận chuyển đúng số tiền</span>
-                        </div>
-                    </div>
                 </div>
             </div>
 
             <div id="cardSwipeBlock" class="text-center py-2" style="display: none;">
                 <div class="card-emv-mockup text-start mb-3">
-                    <div class="d-flex justify-content-between align-items-center mb-4">
-                        <span class="fw-bold tracking-wider fs-6 text-uppercase">Circle K Enterprise</span>
-                        <div class="radar-pulse-ring" style="width:40px; height:40px; font-size:1.1rem;">
-                            <i class="fa-solid fa-wifi" style="transform: rotate(90deg);"></i>
-                        </div>
-                    </div>
                     <div class="emv-chip mb-3"></div>
                     <div class="font-monospace fs-4 tracking-widest mb-3">•••• •••• •••• 8868</div>
                     <div class="d-flex justify-content-between align-items-end">
@@ -581,19 +359,10 @@ require ROOT_PATH . '/includes/header.php';
                             <small class="text-white-50 text-uppercase d-block" style="font-size:0.65rem;">Card Holder</small>
                             <span class="fw-bold font-monospace">CIRCLE K POS TERMINAL</span>
                         </div>
-                        <div class="d-flex align-items-center gap-2">
-                            <i class="fa-brands fa-cc-visa fs-2"></i>
-                            <i class="fa-brands fa-cc-mastercard fs-2"></i>
-                        </div>
                     </div>
                 </div>
-
                 <div class="p-3 bg-light rounded-4 border text-center">
-                    <div class="radar-pulse-ring mb-2">
-                        <i class="fa-solid fa-hand-holding-dollar"></i>
-                    </div>
                     <div class="fw-bold text-dark fs-6">Vui lòng cắm hoặc chạm thẻ vào máy POS</div>
-                    <div class="small text-muted">Đang kết nối cổng thanh toán Napas / Visa...</div>
                 </div>
             </div>
         </div>
@@ -620,7 +389,7 @@ require ROOT_PATH . '/includes/header.php';
                     <strong><?= htmlspecialchars($order['ten_cua_hang'] ?? 'Circle K - Trần Phú') ?></strong>
                 </div>
                 <div class="text-muted">
-                    <i class="fa-solid fa-user-circle me-1"></i><?= htmlspecialchars($order['ten_nv'] ?? 'Nguyễn Phương Nam') ?>
+                    <i class="fa-solid fa-user-circle me-1"></i><?= htmlspecialchars($order['ten_nv'] ?? 'Thu ngân') ?>
                 </div>
             </div>
 
@@ -674,6 +443,7 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 </div>
 
+<!-- MODAL THANH TOÁN THÀNH CÔNG VÀ IN BILL CHUYÊN NGHIỆP -->
 <div class="modal fade" id="modalPaymentSuccess" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content" style="border-radius: 20px; border: none; box-shadow: 0 20px 60px rgba(0,0,0,0.15);">
@@ -682,56 +452,119 @@ require ROOT_PATH . '/includes/header.php';
                     <i class="fa-solid fa-circle-check" style="font-size: 4.5rem;"></i>
                 </div>
                 <h4 class="fw-bold text-dark mb-1">Giao dịch thành công!</h4>
-                <div class="text-muted small mb-4">Đơn hàng <strong class="text-danger"><?= htmlspecialchars($orderCode) ?></strong> đã được hoàn tất và cập nhật doanh thu.</div>
+                <div class="text-muted small mb-4">Đơn hàng <strong class="text-danger"><?= htmlspecialchars($orderCode) ?></strong> đã được hoàn tất.</div>
 
+                <!-- BILL IN RA (THIẾT KẾ MỚI) -->
                 <div class="receipt-print-box text-start mb-4" id="printableBill">
-                    <div class="text-center border-bottom pb-3 mb-3">
-                        <div class="fw-bold fs-5">CIRCLE K VIETNAM</div>
-                        <div class="small fw-semibold mt-1"><?= htmlspecialchars($order['ten_cua_hang'] ?? 'Circle K - Trần Phú') ?></div>
-                        <div class="small text-muted"><?= htmlspecialchars($order['dia_chi_ch'] ?? '76 Trần Phú, Nha Trang') ?></div>
-                        <div class="small text-muted mt-1"><?= date('d/m/Y H:i:s') ?></div>
-                        <div class="fw-bold mt-2 border border-dark rounded d-inline-block px-3 py-1"><?= htmlspecialchars($orderCode) ?></div>
+                    
+                    <!-- Header -->
+                    <div class="text-center">
+                        <div class="brand-logo">CIRCLE K</div>
+                        <div class="fw-bold">Tiện lợi 24/7</div>
+                        <div class="dashed-line"></div>
+                        <div class="fw-bold"><?= htmlspecialchars($order['ten_cua_hang'] ?? 'Circle K Vietnam') ?></div>
+                        <div><?= htmlspecialchars($order['dia_chi_ch'] ?? 'Nha Trang') ?></div>
+                        <div>Điện thoại: <?= htmlspecialchars($order['sdt_ch'] ?? '1900 3110') ?></div>
                     </div>
-                    <div class="small border-bottom pb-2 mb-2">
+                    
+                    <div class="dashed-line"></div>
+
+                    <!-- Thời gian & Mã hóa đơn -->
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Ngày: <?= date('d/m/Y H:i', strtotime($order['ngay_tao'])) ?></span>
+                        <span>Số: <b><?= htmlspecialchars($orderCode) ?></b></span>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Thu ngân:</span>
+                        <span><?= htmlspecialchars($order['ten_nv'] ?? '') ?></span>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <span>Khách hàng:</span>
+                        <span>
+                            <?php if (!empty($order['hang_the'])): ?>[<?= htmlspecialchars($order['hang_the']) ?>] <?php endif; ?>
+                            <?= htmlspecialchars($order['ten_kh'] ?? 'Khách vãng lai') ?>
+                        </span>
+                    </div>
+
+                    <div class="dashed-line"></div>
+
+                    <!-- Danh sách món -->
+                    <div class="fw-bold d-flex justify-content-between mb-1">
+                        <span style="width: 50%">Tên Món</span>
+                        <span style="width: 15%" class="text-center">SL</span>
+                        <span style="width: 35%" class="text-end">T.Tiền</span>
+                    </div>
+                    
+                    <?php foreach ($items as $it): ?>
+                    <div class="mb-2">
+                        <div><?= htmlspecialchars($it['ten_san_pham']) ?></div>
+                        <div class="d-flex justify-content-between text-muted" style="font-size: 0.8rem;">
+                            <span style="width: 50%"><?= number_format($it['don_gia']) ?></span>
+                            <span style="width: 15%" class="text-center">x<?= $it['so_luong'] ?></span>
+                            <span style="width: 35%" class="text-end text-dark fw-bold"><?= number_format($it['thanh_tien']) ?></span>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+
+                    <div class="dashed-line"></div>
+
+                    <!-- Tính tiền -->
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Cộng tiền hàng:</span>
+                        <span><?= number_format($subtotal) ?></span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Khuyến mãi / Chiết khấu:</span>
+                        <span>- <?= number_format($discount) ?></span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Tiền thuế GTGT (8%):</span>
+                        <span><?= number_format($vat) ?></span>
+                    </div>
+                    
+                    <div class="dashed-line"></div>
+                    
+                    <div class="d-flex justify-content-between fw-bold fs-6 mb-2">
+                        <span>TỔNG THANH TOÁN:</span>
+                        <span class="fs-5"><?= number_format($grandTotal) ?> ₫</span>
+                    </div>
+
+                    <div class="dashed-line"></div>
+
+                    <!-- Hình thức thanh toán -->
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Hình thức:</span>
+                        <span class="fw-bold text-uppercase" id="txtConfirmedMethod">Tiền mặt</span>
+                    </div>
+                    
+                    <div id="rcpCashDetails" style="display:none;">
                         <div class="d-flex justify-content-between mb-1">
-                            <span>Khách hàng:</span>
-                            <span class="fw-bold">
-                                <?php if (!empty($order['hang_the'])): ?>
-                                    [<?= htmlspecialchars($order['hang_the']) ?>] 
-                                <?php endif; ?>
-                                <?= htmlspecialchars($order['ten_kh'] ?? 'Khách lẻ (Vãng lai)') ?>
-                            </span>
+                            <span>Khách đưa:</span>
+                            <span class="fw-bold" id="rcpGiven">0 ₫</span>
                         </div>
                         <div class="d-flex justify-content-between">
-                            <span>Thu ngân:</span>
-                            <span><?= htmlspecialchars($order['ten_nv'] ?? 'Nguyễn Phương Nam') ?></span>
+                            <span>Tiền thối lại:</span>
+                            <span class="fw-bold" id="rcpChange">0 ₫</span>
                         </div>
                     </div>
-                    <div class="small border-bottom pb-2 mb-2">
-                        <?php foreach ($items as $it): ?>
-                        <div class="d-flex justify-content-between mb-1">
-                            <span><?= htmlspecialchars($it['ten_san_pham']) ?> (x<?= $it['so_luong'] ?>)</span>
-                            <span class="num-font fw-bold"><?= number_format($it['thanh_tien']) ?> ₫</span>
+
+                    <div class="dashed-line"></div>
+
+                    <!-- Footer & Mã vạch -->
+                    <div class="text-center mt-3">
+                        <div class="mb-2">
+                            <!-- Tạo Barcode từ mã hóa đơn tự động -->
+                            <img src="https://barcode.tec-it.com/barcode.ashx?data=<?= urlencode(str_replace('#', '', $orderCode)) ?>&code=Code128&dpi=96" alt="Barcode" style="max-width: 90%; height: 45px;">
                         </div>
-                        <?php endforeach; ?>
+                        <div class="fw-bold mt-2">CẢM ƠN QUÝ KHÁCH!</div>
+                        <div>Hẹn gặp lại</div>
+                        <div class="mt-1" style="font-size: 0.75rem; font-style: italic;">(Mật khẩu Wifi: circlek123)</div>
                     </div>
-                    <div class="small">
-                        <div class="d-flex justify-content-between mb-1"><span>Tạm tính:</span><span><?= number_format($subtotal) ?> ₫</span></div>
-                        <div class="d-flex justify-content-between mb-1"><span>Giảm giá:</span><span>- <?= number_format($discount) ?> ₫</span></div>
-                        <div class="d-flex justify-content-between mb-2"><span>VAT (8%):</span><span><?= number_format($vat) ?> ₫</span></div>
-                        <div class="d-flex justify-content-between fw-bold fs-6 pt-2 border-top mt-2">
-                            <span>TỔNG CỘNG:</span><span class="text-danger"><?= number_format($grandTotal) ?> ₫</span>
-                        </div>
-                        <div class="d-flex justify-content-between mt-2 pt-2 border-top text-muted">
-                            <span>Hình thức:</span><span id="txtConfirmedMethod">Tiền mặt</span>
-                        </div>
-                        <div id="rcpCashDetails" class="mt-2 pt-2 border-top" style="display:none;">
-                            <div class="d-flex justify-content-between mb-1"><span>Tiền khách đưa:</span><span class="num-font fw-bold" id="rcpGiven">0 ₫</span></div>
-                            <div class="d-flex justify-content-between"><span>Tiền thừa:</span><span class="num-font fw-bold text-primary" id="rcpChange">0 ₫</span></div>
-                        </div>
-                    </div>
-                    <div class="text-center small text-muted mt-4">Cảm ơn quý khách & Hẹn gặp lại!</div>
+
                 </div>
+                <!-- KẾT THÚC BILL -->
 
                 <div class="d-flex gap-2">
                     <button type="button" class="btn-ck btn-ck-soft flex-grow-1" onclick="window.print()">
@@ -812,14 +645,6 @@ require ROOT_PATH . '/includes/header.php';
         calculateChange();
     }
 
-    function copySnippet(text, btnEl) {
-        navigator.clipboard.writeText(text).then(() => {
-            const org = btnEl.innerHTML;
-            btnEl.innerHTML = '<i class="fa-solid fa-check text-success"></i>';
-            setTimeout(() => { btnEl.innerHTML = org; }, 1500);
-        });
-    }
-
     function submitPayment() {
         const btn = document.getElementById('btnConfirmPay');
         btn.disabled = true;
@@ -848,7 +673,7 @@ require ROOT_PATH . '/includes/header.php';
                 document.getElementById('txtConfirmedMethod').textContent = selectedMethod;
                 const rcpCashBox = document.getElementById('rcpCashDetails');
                 if (selectedMethod === 'Tiền mặt') {
-                    rcpCashBox.style.display = '';
+                    rcpCashBox.style.display = 'block';
                     document.getElementById('rcpGiven').textContent = fVND(givenCash);
                     document.getElementById('rcpChange').textContent = fVND(changeCash);
                 } else {
@@ -865,17 +690,6 @@ require ROOT_PATH . '/includes/header.php';
             alert('Lỗi kết nối máy chủ: ' + err);
         });
     }
-
-    let timerSec = 899;
-    setInterval(() => {
-        if (timerSec > 0) {
-            timerSec--;
-            const m = String(Math.floor(timerSec / 60)).padStart(2, '0');
-            const s = String(timerSec % 60).padStart(2, '0');
-            const el = document.getElementById('vnpayTimer');
-            if (el) el.innerHTML = `<i class="fa-regular fa-clock me-1 text-danger"></i>Hết hạn trong: ${m}:${s}`;
-        }
-    }, 1000);
 
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('customerCash').value = grandTotal;
@@ -898,7 +712,6 @@ require ROOT_PATH . '/includes/header.php';
                 link.querySelectorAll('*').forEach(el => {
                     el.style.setProperty('color', '#ffffff', 'important');
                 });
-
                 const iconBox = link.querySelector('div, span, .nav-icon, .icon-wrap, .sidebar-icon');
                 if (iconBox) {
                     iconBox.style.setProperty('background', 'rgba(255, 255, 255, 0.25)', 'important');

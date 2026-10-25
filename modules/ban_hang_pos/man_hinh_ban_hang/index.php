@@ -59,9 +59,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
 
 $sanpham_list = $pdo->query("SELECT sp.*, dm.ten_danh_muc FROM sanpham sp LEFT JOIN danhmuc dm ON sp.danhmuc_id = dm.id WHERE sp.trang_thai = 1 ORDER BY sp.id ASC")->fetchAll();
 $cuahang_list = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
-$nhanvien_list = $pdo->query("SELECT id, ho_ten FROM nhanvien ORDER BY id ASC")->fetchAll();
-$khachhang_list = $pdo->query("SELECT kh.*, ttd.hang_the, ttd.ti_le_giam_gia FROM khachhang kh LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id ORDER BY kh.id ASC")->fetchAll();
 
+$all_nv = $pdo->query("SELECT id, ho_ten, cuahang_id FROM nhanvien ORDER BY id ASC")->fetchAll();
+
+$mgr_nam   = null;
+$mgr_phu   = null;
+$mgr_thai  = null;
+$branch_staff = [];
+
+foreach ($all_nv as $nv) {
+    $id = (int)$nv['id'];
+    $name = trim($nv['ho_ten']);
+    $lower = mb_strtolower($name, 'UTF-8');
+
+    // 1. Loại bỏ Giám đốc Nguyễn Hoàng Đăng Khoa
+    if ($id === 1 || (strpos($lower, 'khoa') !== false && (strpos($lower, 'đăng khoa') !== false || strpos($lower, 'nguyễn hoàng') !== false))) {
+        continue;
+    }
+
+    // 2. Nhận diện đúng 3 Quản lý
+    if ($id === 3 || strpos($lower, 'nguyễn phương nam') !== false || strpos($lower, 'phương nam') !== false) {
+        $mgr_nam = ['id' => $nv['id'], 'ho_ten' => 'Nguyễn Phương Nam [Quản lý]'];
+        continue;
+    }
+    if ($id === 2 || strpos($lower, 'nguyễn dương bảo phú') !== false || ($id <= 4 && strpos($lower, 'bảo phú') !== false)) {
+        $mgr_phu = ['id' => $nv['id'], 'ho_ten' => 'Nguyễn Dương Bảo Phú [Quản lý]'];
+        continue;
+    }
+    if ($id === 4 || strpos($lower, 'đoàn anh thái') !== false || ($id <= 4 && strpos($lower, 'thái') !== false)) {
+        $mgr_thai = ['id' => $nv['id'], 'ho_ten' => 'Đoàn Anh Thái [Quản lý]'];
+        continue;
+    }
+
+    // 3. Nhân viên bán hàng thường
+    $ch_id = (int)$nv['cuahang_id'];
+    $branch_staff[$ch_id][] = [
+        'id' => $nv['id'],
+        'ho_ten' => $name
+    ];
+}
+
+if (!$mgr_nam)  $mgr_nam  = ['id' => 3, 'ho_ten' => 'Nguyễn Phương Nam [Quản lý]'];
+if (!$mgr_phu)  $mgr_phu  = ['id' => 2, 'ho_ten' => 'Nguyễn Dương Bảo Phú [Quản lý]'];
+if (!$mgr_thai) $mgr_thai = ['id' => 4, 'ho_ten' => 'Đoàn Anh Thái [Quản lý]'];
+
+$managers_list = [$mgr_nam, $mgr_phu, $mgr_thai];
+$branch_staff_map = [];
+
+foreach ($cuahang_list as $index => $ch) {
+    $ch_id = (int)$ch['id'];
+    $list = [];
+    if (!empty($managers_list)) {
+        $list[] = $managers_list[$index % count($managers_list)];
+    }
+    if (!empty($branch_staff[$ch_id])) {
+        foreach ($branch_staff[$ch_id] as $st) {
+            $list[] = $st;
+        }
+    }
+    $branch_staff_map[$ch_id] = $list;
+}
+
+$khachhang_list = $pdo->query("SELECT kh.*, ttd.hang_the, ttd.ti_le_giam_gia FROM khachhang kh LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id ORDER BY kh.id ASC")->fetchAll();
 $khuyenmai_active = $pdo->prepare("SELECT * FROM khuyenmai WHERE thoi_gian_bat_dau <= ? AND thoi_gian_ket_thuc >= ? AND (so_luong IS NULL OR so_luong > 0)");
 $now = date('Y-m-d H:i:s'); 
 $khuyenmai_active->execute([$now, $now]); 
@@ -93,18 +152,27 @@ require ROOT_PATH . '/includes/header.php';
     .sidebar::-webkit-scrollbar { width: 5px; } .sidebar::-webkit-scrollbar-track { background: transparent; } .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
 
     .pos-main-row { min-height: calc(100vh - 120px); }
-    .pos-panel-stretch { height: 100%; display: flex; flex-direction: column; }
-    .prod-grid-scroll { flex: 1 1 auto; overflow-y: auto; padding-right: 6px; align-content: flex-start; max-height: calc(100vh - 240px); }
-    .prod-grid-scroll::-webkit-scrollbar, #cartBox::-webkit-scrollbar { width: 6px; }
-    .prod-grid-scroll::-webkit-scrollbar-track, #cartBox::-webkit-scrollbar-track { background: transparent; }
-    .prod-grid-scroll::-webkit-scrollbar-thumb, #cartBox::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-    .prod-grid-scroll::-webkit-scrollbar-thumb:hover, #cartBox::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .pos-panel-stretch { height: calc(100vh - 115px); max-height: calc(100vh - 115px); display: flex; flex-direction: column; overflow: hidden; position: relative; }
     
-    .prod-row { position: relative; transition: all 0.2s; cursor: pointer; user-select: none; overflow: hidden; border: 1.5px solid var(--border-light); border-radius: 14px; display: block; padding: 10px; background: #fff; }
+    .prod-scroll-wrap { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; padding-right: 6px; padding-bottom: 8px; } 
+    .prod-scroll-wrap::-webkit-scrollbar, #cartBox::-webkit-scrollbar { width: 6px; }
+    .prod-scroll-wrap::-webkit-scrollbar-track, #cartBox::-webkit-scrollbar-track { background: transparent; }
+    .prod-scroll-wrap::-webkit-scrollbar-thumb, #cartBox::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    .prod-scroll-wrap::-webkit-scrollbar-thumb:hover, #cartBox::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    
+    .prod-item-col { height: auto !important; }
+    .prod-row { position: relative; transition: all 0.2s ease; cursor: pointer; user-select: none; border: 1.5px solid var(--border-light); border-radius: 14px; display: flex; flex-direction: column; padding: 10px; background: #fff; height: 226px !important; max-height: 226px !important; overflow: hidden; }
     .prod-row:hover { transform: translateY(-3px); border-color: var(--ck-red) !important; box-shadow: 0 8px 20px rgba(238,49,36,0.12); }
     .prod-row:active { transform: scale(0.97); }
-    .prod-row.in-cart { border-color: var(--ck-red) !important; background: linear-gradient(180deg, rgba(238,49,36,0.04), transparent); }
+    .prod-row.in-cart { border-color: var(--ck-red) !important; background: linear-gradient(180deg, rgba(238,49,36,0.04), #fff); }
     
+    .prod-img-box { width: 100%; height: 115px; min-height: 115px; max-height: 115px; background: #ffffff; border: 1px solid #f1f5f9; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 6px; margin-bottom: 8px; flex-shrink: 0; }
+    .prod-img-box img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; transition: transform 0.25s ease; }
+    .prod-row:hover .prod-img-box img { transform: scale(1.08); }
+    .prod-icon-fallback { width: 100%; height: 100%; align-items: center; justify-content: center; font-size: 2.2rem; border-radius: 8px; }
+
+    .prod-title-text { font-size: 0.88rem; font-weight: 700; color: #1e293b; line-height: 1.3; height: 36px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-bottom: 4px; }
+
     .prod-qty-badge { position: absolute; top: 6px; right: 6px; background: var(--ck-red); color: #fff; font-size: 0.75rem; font-weight: 700; width: 24px; height: 24px; border-radius: 50%; display: none; align-items: center; justify-content: center; box-shadow: 0 3px 8px rgba(238,49,36,0.3); z-index: 2; animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
     .prod-row.in-cart .prod-qty-badge { display: flex; }
     @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
@@ -122,16 +190,25 @@ require ROOT_PATH . '/includes/header.php';
     
     .cart-item-anim { animation: slideInLeft 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
     @keyframes slideInLeft { 0% { opacity: 0; transform: translateX(-15px); } 100% { opacity: 1; transform: translateX(0); } }
+
+    .pagination-wrapper { flex-shrink: 0; margin-top: auto; padding-top: 12px; border-top: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: center; gap: 10px; background: #fff; }
+    #pageNumbers { display: flex; align-items: center; background: #f8fafc; border: 1px solid #f1f5f9; border-radius: 10px; padding: 3px 6px; gap: 4px; }
+    .page-btn { width: 34px; height: 34px; border: none; background: transparent; color: #1e3a8a; font-weight: 600; font-size: 0.9rem; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .page-btn:hover { background: #e2e8f0; }
+    .page-btn.active { color: #0f172a; font-weight: 800; border-bottom: 2.5px solid #0f172a; border-radius: 4px 4px 0 0; background: #fff; }
+    .page-nav-btn { background: transparent; border: none; color: #1e3a8a; font-weight: 600; font-size: 0.9rem; padding: 6px 12px; display: flex; align-items: center; gap: 6px; border-radius: 8px; transition: all 0.2s; }
+    .page-nav-btn:hover:not(:disabled) { background: #f1f5f9; }
+    .page-nav-btn:disabled { color: #94a3b8; cursor: not-allowed; opacity: 0.6; }
 </style>
 
 <script>
     document.querySelector('body').classList.add('layout-fixed');
 </script>
 
-<div class="row g-4 pos-main-row">
-    <div class="col-12 col-xl-8 d-flex flex-column">
+<div class="row g-4">
+    <div class="col-12 col-xl-8">
         <div class="bento-panel fade-up pos-panel-stretch">
-            <div class="panel-header flex-wrap gap-2">
+            <div class="panel-header flex-wrap gap-2 mb-3">
                 <div>
                     <h5 class="panel-title"><span class="title-icon" style="background: linear-gradient(135deg, var(--ocean), #6366f1)"><i class="fa-solid fa-cash-register"></i></span> Màn hình bán hàng</h5>
                     <div class="panel-subtitle ms-5">Bấm vào thẻ sản phẩm để thêm vào đơn hàng</div>
@@ -145,63 +222,82 @@ require ROOT_PATH . '/includes/header.php';
                 </div>
             </div>
 
-            <div class="d-flex flex-wrap gap-2 mb-3">
+            <div class="d-flex flex-wrap gap-2 mb-3 flex-shrink-0">
                 <div class="search-bar flex-grow-1"><i class="fa-solid fa-barcode s-ico"></i><input type="text" id="posSearchInput" placeholder="Tìm tên món (Enter xem tất cả danh mục) hoặc quét mã F2..." autocomplete="off"></div>
-                <select class="form-select flex-shrink-0" id="posStoreSelect" style="width: auto; min-width: 230px; height: 44px; border-radius: 10px; font-weight: 500;">
-                    <?php foreach($cuahang_list as $ch): ?><option value="<?=$ch['id']?>">🏪 <?=htmlspecialchars($ch['ten_cua_hang'])?></option><?php endforeach; ?>
+                
+                <select class="form-select flex-shrink-0" id="posStoreSelect" onchange="updateStaffByBranch()" style="width: auto; min-width: 220px; height: 44px; border-radius: 10px; font-weight: 500;">
+                    <?php foreach($cuahang_list as $ch): ?>
+                        <option value="<?=$ch['id']?>">🏪 <?=htmlspecialchars($ch['ten_cua_hang'])?></option>
+                    <?php endforeach; ?>
                 </select>
+
                 <select class="form-select flex-shrink-0" id="posStaffSelect" style="width: auto; min-width: 220px; height: 44px; border-radius: 10px; font-weight: 500;">
-                    <?php foreach($nhanvien_list as $nv): ?><option value="<?=$nv['id']?>" <?=$nv['id']==1?'selected':''?>>👤 <?=htmlspecialchars($nv['ho_ten'])?></option><?php endforeach; ?>
                 </select>
             </div>
 
-            <div class="row g-3 prod-grid-scroll" id="productGrid">
-                <?php foreach($sanpham_list as $sp): 
-                    $catName = $sp['ten_danh_muc'] ?? 'Khác';
-                    $v = getVisual($sp['ten_san_pham'], $catName);
-                    $imgSrc = "../../../assets/images/" . $sp['ma_san_pham'] . ".jpg";
-                ?>
-                <div class="col-6 col-md-4 col-lg-3 prod-item-col" data-cat="<?=$catName?>" data-search="<?=mb_strtolower($sp['ma_san_pham'].' '.$sp['ten_san_pham'])?>">
-                    <div id="prod-<?=$sp['id']?>" onclick="addToCart(<?=$sp['id']?>,'<?=addslashes($sp['ten_san_pham'])?>',<?=$sp['gia_ban']?>,'<?=$sp['ma_san_pham']?>')" class="prod-row d-flex flex-column h-100">
-                        <span class="prod-qty-badge" id="b-<?=$sp['id']?>">0</span>
-                        
-                        <div class="w-100 mb-2 rounded-3 overflow-hidden position-relative d-flex align-items-center justify-content-center" style="height: 120px; background: #f8fafc; border: 1px solid #f1f5f9;">
-                            <img src="<?=$imgSrc?>" alt="<?=htmlspecialchars($sp['ten_san_pham'])?>" class="w-100 h-100" style="object-fit: cover; transition: transform 0.25s;" onmouseover="this.style.transform='scale(1.06)'" onmouseout="this.style.transform='scale(1)'" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                            <div class="w-100 h-100 align-items-center justify-content-center" style="display:none; color:<?=$v['cl']?>; background: color-mix(in srgb, <?=$v['cl']?> 12%, transparent); font-size: 2rem;">
-                                <i class="fa-solid <?=$v['ic']?>"></i>
+            <div class="prod-scroll-wrap" id="productScrollWrap">
+                <div class="row g-3" id="productGrid">
+                    <?php foreach($sanpham_list as $sp): 
+                        $catName = $sp['ten_danh_muc'] ?? 'Khác';
+                        $v = getVisual($sp['ten_san_pham'], $catName);
+                        $imgSrc = "../../../assets/images/" . $sp['ma_san_pham'] . ".jpg";
+                    ?>
+                    <div class="col-6 col-md-4 col-lg-3 prod-item-col" data-cat="<?=$catName?>" data-search="<?=mb_strtolower($sp['ma_san_pham'].' '.$sp['ten_san_pham'])?>">
+                        <div id="prod-<?=$sp['id']?>" onclick="addToCart(<?=$sp['id']?>,'<?=addslashes($sp['ten_san_pham'])?>',<?=$sp['gia_ban']?>,'<?=$sp['ma_san_pham']?>')" class="prod-row">
+                            <span class="prod-qty-badge" id="b-<?=$sp['id']?>">0</span>
+                            
+                            <div class="prod-img-box">
+                                <img src="<?=$imgSrc?>" alt="<?=htmlspecialchars($sp['ten_san_pham'])?>" 
+                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                <!-- Đã fix lỗi Syntax Parse Error ở dòng bên dưới -->
+                                <div class="prod-icon-fallback" style="display:none; color:<?=$v['cl']?>; background: color-mix(in srgb, <?=$v['cl']?> 14%, transparent);">
+                                    <i class="fa-solid <?=$v['ic']?>"></i>
+                                </div>
+                            </div>
+
+                            <div class="prod-title-text" title="<?=htmlspecialchars($sp['ten_san_pham'])?>">
+                                <?=htmlspecialchars($sp['ten_san_pham'])?>
+                            </div>
+
+                            <div class="d-flex align-items-center justify-content-between mt-auto pt-2 border-top border-light">
+                                <span class="num-font fw-bold" style="color: var(--ck-red); font-size: 1.02rem;"><?=number_format($sp['gia_ban'])?> ₫</span>
+                                <span class="sku-tag"><?=$sp['ma_san_pham']?></span>
                             </div>
                         </div>
-
-                        <div class="fw-bold text-dark mt-auto" style="font-size: 0.88rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25;" title="<?=htmlspecialchars($sp['ten_san_pham'])?>">
-                            <?=htmlspecialchars($sp['ten_san_pham'])?>
-                        </div>
-                        <div class="d-flex align-items-center justify-content-between mt-2 pt-1 border-top border-light">
-                            <span class="num-font fw-bold" style="color: var(--ck-red); font-size: 1.05rem;"><?=number_format($sp['gia_ban'])?> ₫</span>
-                            <span class="sku-tag"><?=$sp['ma_san_pham']?></span>
-                        </div>
                     </div>
+                    <?php endforeach; ?>
                 </div>
-                <?php endforeach; ?>
+            </div>
+
+            <div class="pagination-wrapper" id="paginationBar">
+                <button type="button" class="page-nav-btn" id="btnPrevPage" onclick="changePage(-1)">
+                    <i class="fa-solid fa-chevron-left" style="font-size: 0.75rem;"></i> Prev
+                </button>
+                <div id="pageNumbers"></div>
+                <button type="button" class="page-nav-btn" id="btnNextPage" onclick="changePage(1)">
+                    Next <i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i>
+                </button>
             </div>
         </div>
     </div>
 
     <div class="col-12 col-xl-4 d-flex flex-column">
         <div class="bento-panel fade-up d-1 pos-panel-stretch">
-            <div class="panel-header">
+            <div class="panel-header mb-2">
                 <div>
                     <h5 class="panel-title"><span class="title-icon" style="background: linear-gradient(135deg, var(--ck-red), var(--ck-orange))"><i class="fa-solid fa-cart-shopping"></i></span> Giỏ hàng</h5>
                 </div>
                 <span class="order-code fs-6" id="currentOrderCode"><?=$nextHdCode?></span>
             </div>
 
-            <div class="p-3 bg-light border rounded-3 mb-3">
+            <div class="p-3 bg-light border rounded-3 mb-3 flex-shrink-0">
                 <div class="input-group input-group-sm mb-2 shadow-sm">
                     <span class="input-group-text bg-white border-end-0 text-muted"><i class="fa-solid fa-user-pen"></i></span>
                     <input type="text" class="form-control border-start-0 fw-medium" id="posCustomerInput" placeholder="Nhập tên khách hàng..." list="customerSuggestList" autocomplete="off" oninput="handleCustomerInput()">
                     <datalist id="customerSuggestList">
                         <option value="Khách lẻ (Vãng lai)"></option>
-                        <?php foreach($khachhang_list as $kh):$tag = !empty($kh['hang_the']) ? '[' .$kh['hang_the'] . ']' : '[Bạc]';
+                        <?php foreach($khachhang_list as $kh): 
+                            $tag = !empty($kh['hang_the']) ? '[' . $kh['hang_the'] . ']' : '[Bạc]';
                         ?>
                             <option value="<?= htmlspecialchars($kh['ho_ten']) ?>"><?= $tag ?> - SĐT: <?= htmlspecialchars($kh['so_dien_thoai'] ?? '') ?></option>
                         <?php endforeach; ?>
@@ -211,10 +307,10 @@ require ROOT_PATH . '/includes/header.php';
                 <div class="d-flex align-items-center gap-2 mb-2">
                     <select class="form-select form-select-sm border-0 fw-medium shadow-sm flex-grow-1" id="posCustomerSelect" onchange="handleCustomerSelect()" style="height: 36px;">
                         <option value="" data-name="Khách lẻ (Vãng lai)" data-disc="0" data-tier="none">Khách lẻ (Vãng lai)</option>
-                        <?php foreach($khachhang_list as$kh): 
-                            $tier =$kh['hang_the'] ?? 'Bạc';
+                        <?php foreach($khachhang_list as $kh): 
+                            $tier = $kh['hang_the'] ?? 'Bạc';
                             $disc = (float)($kh['ti_le_giam_gia'] ?? 0);
-                            $badgeLabel = '[' .$tier . ']';
+                            $badgeLabel = '[' . $tier . ']';
                         ?>
                             <option value="<?=$kh['id']?>" 
                                     data-name="<?=htmlspecialchars($kh['ho_ten'])?>" 
@@ -229,17 +325,17 @@ require ROOT_PATH . '/includes/header.php';
 
                 <select class="form-select form-select-sm border-0 text-danger fw-bold shadow-sm" id="posPromoSelect" onchange="calcTotal()" style="height: 36px;">
                     <option value="" data-val="0" data-type="">-- Áp dụng Voucher / Khuyến mãi --</option>
-                    <?php foreach($khuyenmai_list as$km): ?><option value="<?=$km['id']?>" data-val="<?=(float)$km['gia_tri']?>" data-type="<?=$km['loai_km']?>">[<?=$km['ma_voucher']?>] <?=$km['ten_km']?></option><?php endforeach; ?>
+                    <?php foreach($khuyenmai_list as $km): ?><option value="<?=$km['id']?>" data-val="<?=(float)$km['gia_tri']?>" data-type="<?=$km['loai_km']?>">[<?=$km['ma_voucher']?>] <?=$km['ten_km']?></option><?php endforeach; ?>
                 </select>
             </div>
 
-            <div id="cartBox" class="flex-grow-1" style="min-height: 200px; max-height: calc(100vh - 490px); overflow-y: auto; padding-right: 5px;"></div>
+            <div id="cartBox" class="flex-grow-1" style="overflow-y: auto; padding-right: 5px;"></div>
 
-            <div class="mt-auto pt-3 border-top">
-                <div class="d-flex justify-content-between mb-2 small text-muted"><span class="fw-medium">Tạm tính</span><span class="num-font fw-bold text-dark" id="lSub">0 ₫</span></div>
-                <div class="d-flex justify-content-between mb-2 small text-success"><span class="fw-medium">Khuyến mãi & Thành viên</span><span class="num-font fw-bold" id="lDisc">- 0 ₫</span></div>
+            <div class="mt-auto pt-3 border-top flex-shrink-0">
+                <div class="d-flex justify-content-between mb-1 small text-muted"><span class="fw-medium">Tạm tính</span><span class="num-font fw-bold text-dark" id="lSub">0 ₫</span></div>
+                <div class="d-flex justify-content-between mb-1 small text-success"><span class="fw-medium">Khuyến mãi & Thành viên</span><span class="num-font fw-bold" id="lDisc">- 0 ₫</span></div>
                 <div class="d-flex justify-content-between mb-2 small text-muted"><span class="fw-medium">VAT (8%)</span><span class="num-font fw-bold text-dark" id="lVat">0 ₫</span></div>
-                <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top"><span class="fw-bold fs-6">TỔNG CỘNG</span><span class="num-font fw-bold" style="font-size: 1.75rem; color: var(--ck-red);" id="lTotal">0 ₫</span></div>
+                <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top"><span class="fw-bold fs-6">TỔNG CỘNG</span><span class="num-font fw-bold" style="font-size: 1.7rem; color: var(--ck-red);" id="lTotal">0 ₫</span></div>
                 
                 <button class="btn-ck btn-ck-primary w-100 mt-3 py-2 fs-6" id="btnGoCheckout" onclick="goToCheckout()">
                     <i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng
@@ -251,6 +347,130 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
 <script>
+    const branchStaffData = <?= json_encode($branch_staff_map, JSON_UNESCAPED_UNICODE) ?>;
+
+    function updateStaffByBranch() {
+        const branchSelect = document.getElementById('posStoreSelect');
+        const staffSelect = document.getElementById('posStaffSelect');
+        const currentBranchId = branchSelect.value;
+        const staffList = branchStaffData[currentBranchId] || [];
+
+        staffSelect.innerHTML = '';
+        staffList.forEach(st => {
+            const opt = document.createElement('option');
+            opt.value = st.id;
+            opt.textContent = '👤 ' + st.ho_ten;
+            staffSelect.appendChild(opt);
+        });
+
+        localStorage.setItem('ck_pos_store', currentBranchId);
+        localStorage.setItem('ck_pos_staff', staffSelect.value);
+    }
+
+    const itemsPerPage = 16; 
+    let currentPage = 1;
+    let visibleItems = [];
+
+    function renderPagination() {
+        const totalPages = Math.ceil(visibleItems.length / itemsPerPage);
+        const wrapper = document.getElementById('paginationBar');
+        const pageNumbers = document.getElementById('pageNumbers');
+        const btnPrev = document.getElementById('btnPrevPage');
+        const btnNext = document.getElementById('btnNextPage');
+        
+        pageNumbers.innerHTML = '';
+        
+        if (totalPages <= 1) {
+            wrapper.style.display = 'none';
+            showPageItems();
+            return;
+        }
+        
+        wrapper.style.display = 'flex';
+        btnPrev.disabled = (currentPage === 1);
+        btnNext.disabled = (currentPage === totalPages);
+
+        let startPage = Math.max(1, currentPage - 2);
+        let endPage = Math.min(totalPages, startPage + 4);
+        if (endPage - startPage < 4) {
+            startPage = Math.max(1, endPage - 4);
+        }
+
+        for (let i = startPage; i <= endPage; i++) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `page-btn ${i === currentPage ? 'active' : ''}`;
+            btn.textContent = i;
+            btn.onclick = () => {
+                currentPage = i;
+                renderPagination();
+            };
+            pageNumbers.appendChild(btn);
+        }
+        
+        showPageItems();
+        const scrollWrap = document.getElementById('productScrollWrap');
+        if (scrollWrap) scrollWrap.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function showPageItems() {
+        visibleItems.forEach(el => el.style.display = 'none');
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        for (let i = startIndex; i < endIndex && i < visibleItems.length; i++) {
+            visibleItems[i].style.display = '';
+        }
+    }
+
+    function changePage(delta) {
+        const totalPages = Math.ceil(visibleItems.length / itemsPerPage);
+        currentPage += delta;
+        if (currentPage < 1) currentPage = 1;
+        if (currentPage > totalPages) currentPage = totalPages;
+        renderPagination();
+    }
+
+    function triggerSearch(kw, forceAllCat = false) {
+        if (forceAllCat) {
+            document.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('active'));
+            const allBtn = document.querySelector('.seg-btn[data-cat="Tất cả"]');
+            if (allBtn) allBtn.classList.add('active');
+        }
+        const activeCat = document.querySelector('.seg-btn.active').dataset.cat;
+        const cleanKw = kw.toLowerCase().trim();
+
+        visibleItems = [];
+        document.querySelectorAll('.prod-item-col').forEach(c => {
+            const matchCat = (activeCat === 'Tất cả' || c.dataset.cat === activeCat);
+            const matchKw  = c.dataset.search.includes(cleanKw);
+            
+            c.style.display = 'none'; 
+
+            if (matchCat && matchKw) {
+                visibleItems.push(c);
+            }
+        });
+
+        currentPage = 1; 
+        renderPagination();
+    }
+
+    document.querySelectorAll('.seg-btn').forEach(b => b.onclick = function(){
+        document.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('active'));
+        this.classList.add('active');
+        document.getElementById('posSearchInput').value = '';
+        triggerSearch('', false);
+    });
+
+    const posInput = document.getElementById('posSearchInput');
+    posInput.oninput = function() { triggerSearch(this.value, false); };
+    posInput.onkeydown = function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            triggerSearch(this.value, true);
+        }
+    };
+
     let cart = JSON.parse(localStorage.getItem('ck_pos_cart')) || [];
     let calc = {s:0, d:0, v:0, t:0};
     const fVND = n => Math.round(n).toLocaleString() + ' ₫';
@@ -260,6 +480,7 @@ require ROOT_PATH . '/includes/header.php';
         localStorage.setItem('ck_pos_cart', JSON.stringify(cart));
         localStorage.setItem('ck_pos_cus', document.getElementById('posCustomerSelect').value);
         localStorage.setItem('ck_pos_promo', document.getElementById('posPromoSelect').value);
+        localStorage.setItem('ck_pos_staff', document.getElementById('posStaffSelect').value);
     }
 
     function addToCart(id, name, price, sku) {
@@ -300,7 +521,7 @@ require ROOT_PATH . '/includes/header.php';
                 let animClass = index === 0 ? 'cart-item-anim' : '';
                 h += `<div class="d-flex justify-content-between align-items-center py-2 border-bottom ${animClass}">
                     <div class="d-flex align-items-center gap-2 pe-2">
-                        <img src="../../../assets/images/${skuImg}.jpg" style="width:44px;height:44px;min-width:44px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;background:#f8fafc;" onerror="this.src='../../../assets/images/SP001.jpg'; this.onerror=null;">
+                        <img src="../../../assets/images/${skuImg}.jpg" style="width:44px;height:44px;min-width:44px;object-fit:contain;padding:2px;border-radius:10px;border:1px solid #e2e8f0;background:#fff;" onerror="this.src='../../../assets/images/SP001.jpg'; this.onerror=null;">
                         <div>
                             <div class="fw-semibold small text-dark" style="line-height:1.2; margin-bottom:4px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${i.name}</div>
                             <small class="text-muted">${i.qty} x ${fVND(i.price)}</small>
@@ -401,38 +622,6 @@ require ROOT_PATH . '/includes/header.php';
         calcTotal();
     }
 
-    function triggerSearch(kw, forceAllCat = false) {
-        if (forceAllCat) {
-            document.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('active'));
-            const allBtn = document.querySelector('.seg-btn[data-cat="Tất cả"]');
-            if (allBtn) allBtn.classList.add('active');
-        }
-        const activeCat = document.querySelector('.seg-btn.active').dataset.cat;
-        const cleanKw = kw.toLowerCase().trim();
-
-        document.querySelectorAll('.prod-item-col').forEach(c => {
-            const matchCat = (activeCat === 'Tất cả' || c.dataset.cat === activeCat);
-            const matchKw  = c.dataset.search.includes(cleanKw);
-            c.style.display = (matchCat && matchKw) ? '' : 'none';
-        });
-    }
-
-    document.querySelectorAll('.seg-btn').forEach(b => b.onclick = function(){
-        document.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('active'));
-        this.classList.add('active');
-        document.getElementById('posSearchInput').value = '';
-        triggerSearch('', false);
-    });
-
-    const posInput = document.getElementById('posSearchInput');
-    posInput.oninput = function() { triggerSearch(this.value, false); };
-    posInput.onkeydown = function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            triggerSearch(this.value, true);
-        }
-    };
-
     const headerSearch = document.querySelector('header input[type="text"], input[placeholder*="Tìm"]');
     if (headerSearch) {
         headerSearch.addEventListener('keydown', function(e) {
@@ -516,6 +705,21 @@ require ROOT_PATH . '/includes/header.php';
             cart = JSON.parse(localStorage.getItem('ck_pos_cart')) || [];
         }
 
+        const savedStore = localStorage.getItem('ck_pos_store');
+        if(savedStore) {
+            document.getElementById('posStoreSelect').value = savedStore;
+        }
+        updateStaffByBranch();
+
+        const savedStaff = localStorage.getItem('ck_pos_staff');
+        if(savedStaff) {
+            document.getElementById('posStaffSelect').value = savedStaff;
+        }
+
+        document.getElementById('posStaffSelect').addEventListener('change', function() {
+            localStorage.setItem('ck_pos_staff', this.value);
+        });
+
         const savedCus = localStorage.getItem('ck_pos_cus');
         const savedPromo = localStorage.getItem('ck_pos_promo');
         
@@ -527,6 +731,7 @@ require ROOT_PATH . '/includes/header.php';
             document.getElementById('posPromoSelect').value = savedPromo;
         }
         drawCart();
+        triggerSearch('', false);
 
         function initSidebarScroll() {
             const viewport = document.querySelector('.os-viewport') || document.querySelector('.sidebar');
@@ -575,41 +780,6 @@ require ROOT_PATH . '/includes/header.php';
                 link.classList.remove('active');
                 link.style.background = '';
                 link.style.boxShadow = '';
-            }
-        });
-
-        document.querySelectorAll('aside a, .sidebar a').forEach(link => {
-            if (link.href && link.href.includes('thanh_toan_don_hang')) {
-                link.addEventListener('click', function(e) {
-                    if (cart.length > 0) {
-                        e.preventDefault();
-                        const btn = document.getElementById('btnGoCheckout');
-                        if(btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang chốt đơn...';
-                        
-                        const fd = new FormData();
-                        fd.append('pos_action', 'create_order_pending');
-                        fd.append('cart', JSON.stringify(cart));
-                        fd.append('cuahang_id', document.getElementById('posStoreSelect').value);
-                        fd.append('nhanvien_id', document.getElementById('posStaffSelect').value);
-                        fd.append('khachhang_id', document.getElementById('posCustomerSelect').value);
-                        fd.append('khuyenmai_id', document.getElementById('posPromoSelect').value);
-                        fd.append('tong_tien', calc.s);
-                        fd.append('tien_giam_gia', calc.d);
-                        fd.append('khach_phai_tra', calc.t);
-
-                        fetch(window.location.href, { method: 'POST', body: fd })
-                            .then(r => r.json())
-                            .then(d => {
-                                if (d.success) {
-                                    window.location.replace(link.href.split('?')[0] + '?id=' + d.hoadon_id);
-                                } else {
-                                    window.location.href = link.href;
-                                }
-                            }).catch(() => {
-                                window.location.href = link.href;
-                            });
-                    }
-                });
             }
         });
     });
