@@ -16,13 +16,8 @@ try {
     die(json_encode(['success' => false, 'message' => $e->getMessage()]));
 }
 
-try {
-    $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_khach_dua DECIMAL(12,2) NULL");
-} catch (Exception $e) { }
-
-try {
-    $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_thoi DECIMAL(12,2) NULL");
-} catch (Exception $e) { }
+try { $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_khach_dua DECIMAL(12,2) NULL"); } catch (Exception $e) { }
+try { $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_thoi DECIMAL(12,2) NULL"); } catch (Exception $e) { }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json; charset=utf-8');
@@ -207,7 +202,9 @@ require ROOT_PATH . '/includes/header.php';
     .tier-dong { background: linear-gradient(135deg, #d97706, #b45309); color: #fff; }
     .tier-none { background: #e2e8f0; color: #475569; }
 
-    .receipt-modal-paper { background: #fff; border: 1px dashed #cbd5e1; border-radius: 14px; padding: 24px; font-family: 'Courier New', Courier, monospace; color: #0f172a; max-width: 420px; margin: 0 auto; box-shadow: 0 4px 16px rgba(0,0,0,0.03); }
+    .receipt-print-box { background: #fff; border: 1px solid #cbd5e1; border-radius: 0px; padding: 20px; font-family: 'Courier New', Courier, monospace; color: #000; max-width: 360px; margin: 0 auto; box-shadow: 0 10px 25px rgba(0,0,0,0.1); font-size: 0.85rem; line-height: 1.4; }
+    .receipt-print-box .dashed-line { border-bottom: 1px dashed #000; margin: 12px 0; }
+    .receipt-print-box .brand-logo { font-family: 'Arial Black', Arial, sans-serif; font-size: 1.5rem; font-weight: 900; letter-spacing: -1px; margin-bottom: 5px; text-transform: uppercase; }
 
     .hub-nav-pill { border: none; background: #f1f5f9; color: #475569; font-weight: 700; font-size: 0.85rem; border-radius: 10px; padding: 10px 16px; transition: all 0.3s ease; }
     .hub-nav-pill.active { background: linear-gradient(135deg, var(--ck-red), #f97316); color: #fff; box-shadow: 0 6px 12px rgba(238,49,36,0.2); transform: translateY(-2px); }
@@ -217,9 +214,15 @@ require ROOT_PATH . '/includes/header.php';
     .hub-progress-bar { height: 100%; border-radius: 99px; transition: width 1s ease; width: 0%; }
 
     @media print {
+        @page { margin: 0; size: 80mm auto; }
         body * { visibility: hidden; }
-        #printableArea, #printableArea * { visibility: visible; }
-        #printableArea { position: absolute; left: 0; top: 0; width: 100%; border: none; }
+        .modal { position: absolute; left: 0; top: 0; margin: 0; padding: 0; min-height: 550px; visibility: visible; }
+        .modal-dialog { margin: 0; padding: 0; max-width: 100%; width: 100%; }
+        .modal-content { border: none; box-shadow: none; background: transparent; }
+        .modal-header, .modal-footer { display: none !important; }
+        #printableArea, #printableArea * { visibility: visible; color: #000 !important; }
+        #printableArea { position: absolute; left: 0; top: 0; width: 78mm !important; max-width: 78mm !important; padding: 2mm !important; margin: 0 !important; border: none !important; box-shadow: none !important; font-size: 11px !important; }
+        #printableArea .dashed-line { margin: 8px 0 !important; }
     }
 </style>
 
@@ -236,9 +239,7 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="sf-num"><?= number_format($tongDoanhThu, 0, ',', '.') ?></span>
                 <span class="sf-unit">₫</span>
             </div>
-            <div class="sf-footer-row">
-                <i class="fa-solid fa-chart-pie"></i> Xem phân tích cơ cấu
-            </div>
+            <div class="sf-footer-row"><i class="fa-solid fa-chart-pie"></i> Xem phân tích cơ cấu</div>
         </div>
     </div>
 
@@ -252,9 +253,7 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="sf-num"><?= number_format($tongDonThanhCong, 0, ',', '.') ?></span>
                 <span class="sf-unit text-muted" style="font-size: 0.95rem;">ĐƠN</span>
             </div>
-            <div class="sf-footer-row">
-                <i class="fa-solid fa-arrow-trend-up"></i> Chỉ số AOV & Giỏ hàng
-            </div>
+            <div class="sf-footer-row"><i class="fa-solid fa-arrow-trend-up"></i> Chỉ số AOV & Giỏ hàng</div>
         </div>
     </div>
 
@@ -269,9 +268,7 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="sf-num"><?= number_format($tongGiamGia, 0, ',', '.') ?></span>
                 <span class="sf-unit">₫</span>
             </div>
-            <div class="sf-footer-row">
-                <i class="fa-solid fa-id-card"></i> Báo cáo Hạng thành viên
-            </div>
+            <div class="sf-footer-row"><i class="fa-solid fa-id-card"></i> Báo cáo Hạng thành viên</div>
         </div>
     </div>
 
@@ -285,9 +282,7 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="sf-num"><?= number_format($tongDonHuy, 0, ',', '.') ?></span>
                 <span class="sf-unit text-muted" style="font-size: 0.95rem;">ĐƠN</span>
             </div>
-            <div class="sf-footer-row">
-                <i class="fa-solid fa-shield-halved"></i> Kiểm toán & Xuất CSV
-            </div>
+            <div class="sf-footer-row"><i class="fa-solid fa-shield-halved"></i> Kiểm toán & Xuất CSV</div>
         </div>
     </div>
 </div>
@@ -443,6 +438,7 @@ require ROOT_PATH . '/includes/header.php';
             <i class="fa-solid fa-search fs-3 mb-2 d-block opacity-25"></i> Không tìm thấy hóa đơn phù hợp với bộ lọc.
         </div>
     </div>
+    <div id="invoicePagination" class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-3" aria-label="Phân trang hóa đơn"></div>
 </div>
 
 <div class="modal fade" id="modalExecutiveHub" tabindex="-1" aria-hidden="true">
@@ -689,46 +685,86 @@ require ROOT_PATH . '/includes/header.php';
 
 <div class="modal fade" id="modalViewDetail" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content" style="border-radius: 18px; border: none;">
+        <div class="modal-content" style="border-radius: 20px; border: none; box-shadow: 0 20px 60px rgba(0,0,0,0.15);">
             <div class="modal-header border-0 pb-0">
-                <h5 class="modal-title fw-bold text-dark"><i class="fa-solid fa-receipt text-danger me-2"></i>Chi tiết Hóa đơn</h5>
+                <h5 class="modal-title fw-bold text-dark"><i class="fa-solid fa-receipt text-primary me-2"></i>Chi tiết Hóa đơn</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body p-4">
-                <div class="receipt-modal-paper" id="printableArea">
-                    <div class="text-center border-bottom pb-3 mb-3">
-                        <div class="fw-bold fs-4">CIRCLE K VIETNAM</div>
-                        <div class="fw-semibold mt-1" id="mStoreName">Circle K - Trần Phú</div>
-                        <div class="small text-muted" id="mStoreAddr">76 Trần Phú, Lộc Thọ, Nha Trang</div>
-                        <div class="small text-muted mt-1" id="mOrderTime"></div>
-                        <div class="fw-bold mt-2 border border-dark rounded d-inline-block px-3 py-1" id="mOrderCode"></div>
+            <div class="modal-body p-4 pt-3">
+                <div class="receipt-print-box" id="printableArea">
+                    <div class="text-center">
+                        <div class="brand-logo">CIRCLE K</div>
+                        <div class="fw-bold">Tiện lợi 24/7</div>
+                        <div class="dashed-line"></div>
+                        <div class="fw-bold" id="mStoreName"></div>
+                        <div id="mStoreAddr"></div>
+                        <div>Điện thoại: <span id="mStorePhone"></span></div>
                     </div>
-                    <div class="small border-bottom pb-2 mb-2">
-                        <div class="d-flex justify-content-between mb-1"><span>Thu ngân:</span><strong id="mCashier">Nguyễn Phương Nam</strong></div>
-                        <div class="d-flex justify-content-between"><span>Khách hàng:</span><span id="mCustomer">Khách lẻ (Vãng lai)</span></div>
+                    <div class="dashed-line"></div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Ngày: <span id="mOrderTime"></span></span>
+                        <span>Số: <b id="mOrderCode"></b></span>
                     </div>
-                    <div id="mItemsContainer" class="small border-bottom pb-3 mb-3"></div>
-                    <div class="small fw-medium">
-                        <div class="d-flex justify-content-between mb-1"><span>Tạm tính:</span><span id="mSubtotal">0 ₫</span></div>
-                        <div class="d-flex justify-content-between mb-1 text-success"><span>Giảm giá:</span><span id="mDiscount">- 0 ₫</span></div>
-                        <div class="d-flex justify-content-between mb-2"><span>VAT (8%):</span><span id="mVat">0 ₫</span></div>
-                        <div class="d-flex justify-content-between fw-bold fs-6 pt-2 border-top mt-2">
-                            <span>TỔNG CỘNG:</span><span class="text-danger" id="mGrandTotal">0 ₫</span>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Thu ngân:</span>
+                        <span id="mCashier"></span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>Khách hàng:</span>
+                        <span id="mCustomer"></span>
+                    </div>
+                    <div class="dashed-line"></div>
+                    <div class="fw-bold d-flex justify-content-between mb-1">
+                        <span style="width: 50%">Tên Món</span>
+                        <span style="width: 15%" class="text-center">SL</span>
+                        <span style="width: 35%" class="text-end">T.Tiền</span>
+                    </div>
+                    <div id="mItemsContainer"></div>
+                    <div class="dashed-line"></div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Cộng tiền hàng:</span>
+                        <span id="mSubtotal"></span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Khuyến mãi / Chiết khấu:</span>
+                        <span id="mDiscount"></span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Tiền thuế GTGT (8%):</span>
+                        <span id="mVat"></span>
+                    </div>
+                    <div class="dashed-line"></div>
+                    <div class="d-flex justify-content-between fw-bold fs-6 mb-2">
+                        <span>TỔNG THANH TOÁN:</span>
+                        <span class="fs-5" id="mGrandTotal"></span>
+                    </div>
+                    <div class="dashed-line"></div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Hình thức:</span>
+                        <span class="fw-bold text-uppercase" id="mPayMethod"></span>
+                    </div>
+                    <div id="mCashRows" style="display:none;">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>Khách đưa:</span>
+                            <span class="fw-bold" id="mGiven"></span>
                         </div>
-                        <div class="d-flex justify-content-between mt-2 pt-2 border-top text-muted">
-                            <span>Phương thức:</span><span id="mPayMethod">Tiền mặt</span>
-                        </div>
-                        <div id="mCashRows" class="border-top mt-2 pt-2" style="display: none;">
-                            <div class="d-flex justify-content-between mb-1"><span>Tiền khách đưa:</span><span class="num-font fw-bold" id="mGiven">0 ₫</span></div>
-                            <div class="d-flex justify-content-between"><span>Tiền thừa:</span><span class="num-font fw-bold text-primary" id="mChange">0 ₫</span></div>
+                        <div class="d-flex justify-content-between">
+                            <span>Tiền thối lại:</span>
+                            <span class="fw-bold" id="mChange"></span>
                         </div>
                     </div>
-                    <div class="text-center small text-muted mt-4">Cảm ơn quý khách & Hẹn gặp lại!</div>
+                    <div class="dashed-line"></div>
+                    <div class="text-center mt-3">
+                        <div class="mb-2" id="mBarcodeBox"></div>
+                        <div class="fw-bold mt-2">CẢM ƠN QUÝ KHÁCH!</div>
+                        <div>Hẹn gặp lại</div>
+                        <div class="mt-1" style="font-size: 0.75rem; font-style: italic;">(Mật khẩu Wifi: circlek123)</div>
+                    </div>
                 </div>
             </div>
-            <div class="modal-footer border-0 pt-0">
-                <button type="button" class="btn-ck btn-ck-soft" data-bs-dismiss="modal">Đóng</button>
-                <button type="button" class="btn-ck btn-ck-primary px-4" onclick="window.print()">
+            <div class="modal-footer border-0 pt-0 pb-4 px-4">
+                <button type="button" class="btn btn-light fw-bold border" data-bs-dismiss="modal">Đóng</button>
+                <button type="button" class="btn btn-danger fw-bold px-4" onclick="window.print()">
                     <i class="fa-solid fa-print me-2"></i>In phiếu thu
                 </button>
             </div>
@@ -793,8 +829,7 @@ require ROOT_PATH . '/includes/header.php';
         const rows = document.querySelectorAll('.invoice-item-row');
         if (rows.length === 0) return alert('Không có dữ liệu hóa đơn để xuất!');
 
-        let csv = "\uFEFF";
-        csv += "Mã HĐ,Thời gian,Chi nhánh,Thu ngân,Khách hàng,Tổng thanh toán (VNĐ),Hình thức,Trạng thái\n";
+        let csv = "\uFEFFMã HĐ,Thời gian,Chi nhánh,Thu ngân,Khách hàng,Tổng thanh toán (VNĐ),Hình thức,Trạng thái\n";
 
         rows.forEach(r => {
             const code = r.querySelector('td:nth-child(1)').innerText.trim();
@@ -818,29 +853,74 @@ require ROOT_PATH . '/includes/header.php';
         document.body.removeChild(link);
     }
 
-    function filterInvoices() {
+    const invoicePageSize = 10;
+    let invoiceCurrentPage = 1;
+
+    function changeInvoicePage(page) {
+        invoiceCurrentPage = page;
+        filterInvoices(false);
+    }
+
+    function renderInvoicePagination(totalItems) {
+        const container = document.getElementById('invoicePagination');
+        const totalPages = Math.ceil(totalItems / invoicePageSize);
+        container.innerHTML = '';
+        if (totalPages === 0) return;
+
+        function addPageButton(label, page, disabled = false, active = false) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-sm ' + (active ? 'btn-danger' : 'btn-outline-secondary');
+            btn.textContent = label;
+            btn.disabled = disabled;
+            btn.addEventListener('click', () => changeInvoicePage(page));
+            container.appendChild(btn);
+        }
+
+        addPageButton('Trước', invoiceCurrentPage - 1, invoiceCurrentPage === 1);
+        const pages = totalPages <= 10
+            ? Array.from({ length: totalPages }, (_, i) => i + 1)
+            : [...new Set([1, 2, 3, invoiceCurrentPage - 1, invoiceCurrentPage, invoiceCurrentPage + 1, totalPages - 1, totalPages]
+                .filter(p => p >= 1 && p <= totalPages))].sort((a, b) => a - b);
+
+        pages.forEach((page, index) => {
+            if (index > 0 && page - pages[index - 1] > 1) {
+                const dots = document.createElement('span');
+                dots.className = 'px-1 text-muted';
+                dots.textContent = '…';
+                container.appendChild(dots);
+            }
+            addPageButton(String(page), page, false, page === invoiceCurrentPage);
+        });
+        addPageButton('Sau', invoiceCurrentPage + 1, invoiceCurrentPage === totalPages);
+    }
+
+    function filterInvoices(resetPage = true) {
         const kw = document.getElementById('filterKeyword').value.toLowerCase().trim();
         const store = document.getElementById('filterStore').value;
         const method = document.getElementById('filterMethod').value;
         const status = document.getElementById('filterStatus').value;
-        const rows = document.querySelectorAll('.invoice-item-row');
-        let visibleCount = 0;
+        const rows = Array.from(document.querySelectorAll('.invoice-item-row'));
 
-        rows.forEach(r => {
+        const matchingRows = rows.filter(r => {
             const mSearch = r.getAttribute('data-search').includes(kw);
-            const mStore  = !store || r.getAttribute('data-store') === store;
+            const mStore = !store || r.getAttribute('data-store') === store;
             const mMethod = !method || r.getAttribute('data-method') === method;
             const mStatus = !status || r.getAttribute('data-status') === status;
-
-            if (mSearch && mStore && mMethod && mStatus) {
-                r.style.display = '';
-                visibleCount++;
-            } else {
-                r.style.display = 'none';
-            }
+            return mSearch && mStore && mMethod && mStatus;
         });
-        document.getElementById('noMatchMsg').style.display = (visibleCount === 0) ? '' : 'none';
+
+        if (resetPage) invoiceCurrentPage = 1;
+        const totalPages = Math.ceil(matchingRows.length / invoicePageSize);
+        invoiceCurrentPage = Math.max(1, Math.min(invoiceCurrentPage, totalPages || 1));
+        rows.forEach(r => r.style.display = 'none');
+        const start = (invoiceCurrentPage - 1) * invoicePageSize;
+        matchingRows.slice(start, start + invoicePageSize).forEach(r => r.style.display = '');
+        document.getElementById('noMatchMsg').style.display = matchingRows.length === 0 ? '' : 'none';
+        renderInvoicePagination(matchingRows.length);
     }
+
+    filterInvoices();
 
     function viewInvoiceDetail(id) {
         const fd = new FormData();
@@ -855,25 +935,30 @@ require ROOT_PATH . '/includes/header.php';
                     const items = data.items;
                     const code = '#HD' + (1024 + parseInt(od.id));
 
-                    document.getElementById('mStoreName').textContent = od.ten_cua_hang || 'Circle K - Trần Phú';
-                    document.getElementById('mStoreAddr').textContent = od.dia_chi_ch || '76 Trần Phú, Lộc Thọ, Nha Trang';
+                    document.getElementById('mStoreName').textContent = od.ten_cua_hang || 'Circle K Vietnam';
+                    document.getElementById('mStoreAddr').textContent = od.dia_chi_ch || '';
+                    document.getElementById('mStorePhone').textContent = od.sdt_ch || '1900 3110';
                     document.getElementById('mOrderTime').textContent = od.ngay_tao_fmt || od.ngay_tao;
                     document.getElementById('mOrderCode').textContent = code;
                     document.getElementById('mCashier').textContent   = od.ten_nv || 'Thu ngân';
 
                     let custText = 'Khách lẻ (Vãng lai)';
                     if (od.ten_kh) {
-                        const tierTag = od.hang_the ? `[${od.hang_the}] ` : '[Đồng] ';
-                        custText = tierTag + od.ten_kh + (od.sdt_kh ? ' (' + od.sdt_kh + ')' : '');
+                        const tierTag = od.hang_the ? `[${od.hang_the}] ` : '';
+                        custText = tierTag + od.ten_kh;
                     }
                     document.getElementById('mCustomer').textContent = custText;
 
                     let itemsHtml = '';
                     items.forEach(it => {
                         itemsHtml += `
-                            <div class="d-flex justify-content-between mb-1">
-                                <span>${it.ten_san_pham} (x${it.so_luong})</span>
-                                <span class="fw-semibold">${fVND(it.thanh_tien)}</span>
+                            <div class="mb-2">
+                                <div>${it.ten_san_pham}</div>
+                                <div class="d-flex justify-content-between text-muted" style="font-size: 0.8rem;">
+                                    <span style="width: 50%">${fVND(it.don_gia).replace(' ₫','')}</span>
+                                    <span style="width: 15%" class="text-center">x${it.so_luong}</span>
+                                    <span style="width: 35%" class="text-end text-dark fw-bold">${fVND(it.thanh_tien).replace(' ₫','')}</span>
+                                </div>
                             </div>`;
                     });
                     document.getElementById('mItemsContainer').innerHTML = itemsHtml;
@@ -883,9 +968,9 @@ require ROOT_PATH . '/includes/header.php';
                     const total    = parseFloat(od.khach_phai_tra) || 0;
                     const vat      = Math.max(0, total - (subtotal - discount));
 
-                    document.getElementById('mSubtotal').textContent   = fVND(subtotal);
-                    document.getElementById('mDiscount').textContent   = '- ' + fVND(discount);
-                    document.getElementById('mVat').textContent        = fVND(vat);
+                    document.getElementById('mSubtotal').textContent   = fVND(subtotal).replace(' ₫','');
+                    document.getElementById('mDiscount').textContent   = '- ' + fVND(discount).replace(' ₫','');
+                    document.getElementById('mVat').textContent        = fVND(vat).replace(' ₫','');
                     document.getElementById('mGrandTotal').textContent = fVND(total);
                     
                     const meth = od.phuong_thuc || 'Tiền mặt';
@@ -893,7 +978,7 @@ require ROOT_PATH . '/includes/header.php';
 
                     const cashRows = document.getElementById('mCashRows');
                     if (meth === 'Tiền mặt') {
-                        cashRows.style.display = '';
+                        cashRows.style.display = 'block';
                         const given = (od.tien_khach_dua !== null && od.tien_khach_dua !== undefined && parseFloat(od.tien_khach_dua) > 0)
                                       ? parseFloat(od.tien_khach_dua)
                                       : total;
@@ -905,6 +990,8 @@ require ROOT_PATH . '/includes/header.php';
                     } else {
                         cashRows.style.display = 'none';
                     }
+
+                    document.getElementById('mBarcodeBox').innerHTML = `<img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(code.replace('#',''))}&code=Code128&dpi=96" alt="Barcode" style="max-width: 90%; height: 45px;">`;
 
                     new bootstrap.Modal(document.getElementById('modalViewDetail')).show();
                 } else {

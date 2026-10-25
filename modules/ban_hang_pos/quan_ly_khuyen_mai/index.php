@@ -13,299 +13,200 @@ try {
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
     ]);
 } catch (\PDOException $e) {
-    die("Lỗi kết nối CSDL: " . $e->getMessage());
+    die(json_encode(['success' => false, 'message' => $e->getMessage()]));
 }
 
-try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS khuyenmai (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        ma_voucher VARCHAR(50) NOT NULL UNIQUE,
-        ten_km VARCHAR(255) NOT NULL,
-        loai_km VARCHAR(50) NOT NULL DEFAULT 'Tiền mặt',
-        gia_tri DECIMAL(12,2) NOT NULL DEFAULT 0,
-        so_luong INT NULL,
-        so_luong_da_dung INT DEFAULT 0,
-        thoi_gian_bat_dau DATETIME NOT NULL,
-        thoi_gian_ket_thuc DATETIME NOT NULL,
-        cuahang_id INT NULL,
-        trang_thai TINYINT(1) DEFAULT 1
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-    $pdo->exec("ALTER TABLE khuyenmai ADD COLUMN trang_thai TINYINT(1) NOT NULL DEFAULT 1");
-} catch (Exception $e) { }
-
-try {
-    $pdo->exec("UPDATE khuyenmai SET trang_thai = 1 WHERE trang_thai IS NULL");
-} catch (Exception $e) { }
+try { $pdo->exec("ALTER TABLE khuyenmai ADD COLUMN so_luong_da_dung INT DEFAULT 0"); } catch (Exception $e) { }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json; charset=utf-8');
+    $act = $_POST['action'];
 
-    if ($_POST['action'] === 'add_promo') {
+    if ($act === 'save_promo') {
         try {
-            $code       = strtoupper(trim($_POST['ma_voucher'] ?? ''));
-            $name       = trim($_POST['ten_km'] ?? '');
-            $type       = trim($_POST['loai_km'] ?? 'Tiền mặt');
-            $val        = (float)($_POST['gia_tri'] ?? 0);
-            $qty        = !empty($_POST['so_luong']) ? (int)$_POST['so_luong'] : null;
-            $start      = trim($_POST['thoi_gian_bat_dau'] ?? date('Y-m-d 00:00:00'));
-            $end        = trim($_POST['thoi_gian_ket_thuc'] ?? date('Y-m-d 23:59:59'));
-            $store_id   = !empty($_POST['cuahang_id']) ? (int)$_POST['cuahang_id'] : null;
+            $id          = (int)($_POST['id'] ?? 0);
+            $ten_km      = trim($_POST['ten_km'] ?? '');
+            $ma_voucher  = strtoupper(trim($_POST['ma_voucher'] ?? ''));
+            $loai_km     = trim($_POST['loai_km'] ?? 'Giảm %');
+            $gia_tri     = (float)($_POST['gia_tri'] ?? 0);
+            $so_luong    = $_POST['so_luong'] !== '' ? (int)$_POST['so_luong'] : null;
+            $cuahang_id  = !empty($_POST['cuahang_id']) ? (int)$_POST['cuahang_id'] : null;
+            $bat_dau     = str_replace('T', ' ', trim($_POST['thoi_gian_bat_dau'] ?? ''));
+            $ket_thuc    = str_replace('T', ' ', trim($_POST['thoi_gian_ket_thuc'] ?? ''));
 
-            if (empty($code) || empty($name)) {
-                echo json_encode(['success' => false, 'message' => 'Vui lòng nhập mã và tên chương trình!']);
+            if ($ten_km === '' || $ma_voucher === '' || $gia_tri <= 0) {
+                echo json_encode(['success' => false, 'message' => 'Vui lòng điền đầy đủ thông tin khuyến mãi hợp lệ!']);
                 exit;
             }
 
-            $stmt = $pdo->prepare("INSERT INTO khuyenmai (ma_voucher, ten_km, loai_km, gia_tri, so_luong, thoi_gian_bat_dau, thoi_gian_ket_thuc, cuahang_id, trang_thai) 
-                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)");
-            $stmt->execute([$code, $name, $type, $val, $qty, $start, $end, $store_id]);
+            if ($id > 0) {
+                $stmt = $pdo->prepare("UPDATE khuyenmai SET cuahang_id = ?, ten_km = ?, ma_voucher = ?, loai_km = ?, gia_tri = ?, so_luong = ?, thoi_gian_bat_dau = ?, thoi_gian_ket_thuc = ? WHERE id = ?");
+                $stmt->execute([$cuahang_id, $ten_km, $ma_voucher, $loai_km, $gia_tri, $so_luong, $bat_dau, $ket_thuc, $id]);
+            } else {
+                $stmt = $pdo->prepare("INSERT INTO khuyenmai (cuahang_id, ten_km, ma_voucher, loai_km, gia_tri, so_luong, thoi_gian_bat_dau, thoi_gian_ket_thuc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$cuahang_id, $ten_km, $ma_voucher, $loai_km, $gia_tri, $so_luong, $bat_dau, $ket_thuc]);
+            }
 
             echo json_encode(['success' => true]);
             exit;
         } catch (Exception $e) {
-            echo json_encode(['success' => false, 'message' => 'Mã voucher đã tồn tại hoặc lỗi: ' . $e->getMessage()]);
+            echo json_encode(['success' => false, 'message' => 'Mã voucher đã tồn tại hoặc dữ liệu không hợp lệ: ' . $e->getMessage()]);
             exit;
         }
     }
 
-    if ($_POST['action'] === 'delete_promo') {
-        $id = (int)($_POST['id'] ?? 0);
-        $pdo->prepare("DELETE FROM khuyenmai WHERE id = ?")->execute([$id]);
-        echo json_encode(['success' => true]);
-        exit;
+    if ($act === 'delete_promo') {
+        try {
+            $id = (int)($_POST['id'] ?? 0);
+            $pdo->prepare("UPDATE hoadon SET khuyenmai_id = NULL WHERE khuyenmai_id = ?")->execute([$id]);
+            $pdo->prepare("DELETE FROM khuyenmai WHERE id = ?")->execute([$id]);
+            echo json_encode(['success' => true]);
+            exit;
+        } catch (Exception $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            exit;
+        }
     }
 }
 
 $cuahang_list = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+$promos = $pdo->query("SELECT km.*, ch.ten_cua_hang, 
+                              (SELECT COUNT(*) FROM hoadon hd WHERE hd.khuyenmai_id = km.id AND hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán')) AS luot_dung_hd
+                       FROM khuyenmai km 
+                       LEFT JOIN cuahang ch ON km.cuahang_id = ch.id 
+                       ORDER BY km.id DESC")->fetchAll();
 
-$now = date('Y-m-d H:i:s');
-$promosRaw = $pdo->query("SELECT km.*, ch.ten_cua_hang 
-                          FROM khuyenmai km 
-                          LEFT JOIN cuahang ch ON km.cuahang_id = ch.id 
-                          ORDER BY km.id DESC")->fetchAll();
+$now = time();
+$totalPromos = count($promos);
+$activePromos = 0;
+$upcomingPromos = 0;
+$expiredPromos = 0;
+$totalUsedCount = 0;
 
-$promos = [];
-$cntTotal = count($promosRaw);
-$cntRunning = 0;
-$cntUpcoming = 0;
-$cntEnded = 0;
+foreach ($promos as &$p) {
+    $start = strtotime($p['thoi_gian_bat_dau']);
+    $end   = strtotime($p['thoi_gian_ket_thuc']);
+    $qty   = $p['so_luong'];
+    $used  = max((int)($p['so_luong_da_dung'] ?? 0), (int)($p['luot_dung_hd'] ?? 0));
+    $p['used_count'] = $used;
+    $totalUsedCount += $used;
 
-foreach ($promosRaw as $p) {
-    $stCol = isset($p['trang_thai']) ? (int)$p['trang_thai'] : 1;
-    $startTime = $p['thoi_gian_bat_dau'] ?? ($p['ngay_bat_dau'] ?? '');
-    $endTime   = $p['thoi_gian_ket_thuc'] ?? ($p['ngay_ket_thuc'] ?? '');
-
-    if ($stCol === 0) {
-        $statusKey = 'paused';
-        $statusLabel = 'Tạm dừng';
-        $statusClass = 'badge-km-paused';
-    } elseif (!empty($endTime) && $endTime < $now) {
-        $statusKey = 'ended';
-        $statusLabel = 'Đã kết thúc';
-        $statusClass = 'badge-km-ended';
-        $cntEnded++;
-    } elseif (!empty($startTime) && $startTime > $now) {
-        $statusKey = 'upcoming';
-        $statusLabel = 'Sắp diễn ra';
-        $statusClass = 'badge-km-upcoming';
-        $cntUpcoming++;
+    if ($qty !== null && (int)$qty <= 0) {
+        $p['status_key'] = 'expired';
+        $p['status_label'] = 'Hết lượt';
+        $expiredPromos++;
+    } elseif ($now < $start) {
+        $p['status_key'] = 'upcoming';
+        $p['status_label'] = 'Sắp diễn ra';
+        $upcomingPromos++;
+    } elseif ($now > $end) {
+        $p['status_key'] = 'expired';
+        $p['status_label'] = 'Đã kết thúc';
+        $expiredPromos++;
     } else {
-        $statusKey = 'running';
-        $statusLabel = 'Đang chạy';
-        $statusClass = 'badge-km-running';
-        $cntRunning++;
+        $p['status_key'] = 'active';
+        $p['status_label'] = 'Đang chạy';
+        $activePromos++;
     }
-
-    $p['status_key']   = $statusKey;
-    $p['status_label'] = $statusLabel;
-    $p['status_class'] = $statusClass;
-    $p['start_fmt']    = !empty($startTime) ? date('d/m/Y', strtotime($startTime)) : '--';
-    $p['end_fmt']      = !empty($endTime) ? date('d/m/Y', strtotime($endTime)) : '--';
-    $promos[] = $p;
 }
+unset($p);
 
-$pageTitle  = 'Quản lý Khuyến mãi';
-$activeMenu = 'quan_ly_khuyen_mai';
+$pageTitle  = 'Quản lý Khuyến mãi & Voucher';
+$activeMenu = 'khuyen_mai';
 
 require ROOT_PATH . '/includes/header.php';
 ?>
 
 <style>
-    .stat-card-km {
-        border-radius: 16px;
-        padding: 18px 22px;
-        background: #fff;
-        border: 1.5px solid var(--border-light);
-        cursor: pointer;
-        position: relative;
-        overflow: hidden;
-        transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    .stat-card-km::after {
-        content: '';
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 3px;
-        background: transparent;
-        transition: all 0.2s;
-    }
-    .stat-card-km:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 12px 28px rgba(0,0,0,0.07);
-    }
-    .stat-card-km.c-total:hover { border-color: var(--ck-red); }
-    .stat-card-km.c-total:hover::after { background: var(--ck-red); }
-    .stat-card-km.c-run:hover { border-color: #10b981; }
-    .stat-card-km.c-run:hover::after { background: #10b981; }
-    .stat-card-km.c-upc:hover { border-color: #f59e0b; }
-    .stat-card-km.c-upc:hover::after { background: #f59e0b; }
-    .stat-card-km.c-end:hover { border-color: #64748b; }
-    .stat-card-km.c-end:hover::after { background: #64748b; }
+    body:not(.layout-fixed) .main-sidebar { height: inherit; min-height: 100vh; position: absolute; top: 0; }
+    .main-sidebar, .main-sidebar::before { transition: margin-left .3s ease-in-out,width .3s ease-in-out; width: 250px; }
+    .layout-fixed .main-sidebar { bottom: 0; float: none; left: 0; position: fixed; top: 0; }
+    aside.main-sidebar { display: flex !important; flex-direction: column !important; height: 100vh !important; overflow: hidden !important; z-index: 1038 !important; }
+    .brand-link { flex-shrink: 0 !important; position: relative !important; z-index: 10 !important; border-bottom: 1px solid rgba(255,255,255,0.05) !important; background: inherit !important; display: block; padding: .8125rem .5rem; white-space: nowrap; }
+    .sidebar { flex-grow: 1 !important; overflow-y: auto !important; overflow-x: hidden !important; height: 100% !important; display: block !important; padding-bottom: 50px !important; }
+    .sidebar::-webkit-scrollbar { width: 5px; } .sidebar::-webkit-scrollbar-track { background: transparent; } .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
 
-    .stat-icon-wrap-km {
-        width: 44px;
-        height: 44px;
-        border-radius: 12px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.25rem;
-    }
-    .stat-click-hint-km {
-        font-size: 0.72rem;
-        font-weight: 600;
-        color: #94a3b8;
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        margin-top: 6px;
-        transition: 0.15s;
-    }
-    .stat-card-km:hover .stat-click-hint-km { color: var(--ck-red); }
+    .stat-float-wrapper { background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.8); border-radius: 24px; padding: 24px; position: relative; transition: all 0.35s ease; height: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.02); }
+    .stat-float-wrapper:hover { background: #ffffff; transform: translateY(-4px); box-shadow: 0 18px 36px rgba(0,0,0,0.06); }
+    .sf-header-row { display: inline-flex; align-items: center; position: relative; margin-bottom: 20px; }
+    .sf-pill { background: #ffffff; border-radius: 50px; padding: 8px 36px 8px 18px; font-size: 0.72rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 4px 15px rgba(0,0,0,0.04); position: relative; z-index: 2; }
+    .sf-icon-box { width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; position: absolute; right: -12px; z-index: 3; box-shadow: 0 6px 15px rgba(0,0,0,0.06); }
+    .sf-body-row { display: flex; align-items: baseline; line-height: 1; }
+    .sf-num { font-size: 2.1rem; font-weight: 900; font-family: 'Nunito', sans-serif; }
+    .sf-unit { font-size: 0.95rem; font-weight: 700; margin-left: 6px; color: #64748b; }
+    .sf-footer-row { margin-top: 12px; font-size: 0.82rem; font-weight: 600; color: #94a3b8; display: flex; align-items: center; gap: 6px; }
 
-    .code-pill {
-        display: inline-flex;
-        align-items: center;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        padding: 3px 8px;
-        font-family: monospace;
-        font-weight: 700;
-        font-size: 0.88rem;
-        color: #1e293b;
-        letter-spacing: 0.5px;
-    }
-    .copy-btn {
-        border: none;
-        background: transparent;
-        color: #94a3b8;
-        padding: 2px 4px;
-        cursor: pointer;
-        transition: 0.15s;
-        border-radius: 4px;
-    }
-    .copy-btn:hover { color: var(--ck-red); background: #fee2e2; }
+    .th-red .sf-icon-box { background: #ffe4e6; color: #e11d48; } .th-red .sf-num { color: #e11d48; }
+    .th-green .sf-icon-box { background: #d1fae5; color: #10b981; } .th-green .sf-num { color: #10b981; }
+    .th-blue .sf-icon-box { background: #e0f2fe; color: #0ea5e9; } .th-blue .sf-num { color: #0ea5e9; }
+    .th-amber .sf-icon-box { background: #fef3c7; color: #d97706; } .th-amber .sf-num { color: #d97706; }
 
-    .badge-status-km {
-        padding: 5px 12px;
-        border-radius: 99px;
-        font-size: 0.76rem;
-        font-weight: 700;
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-    }
-    .badge-km-running { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
-    .badge-km-upcoming { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
-    .badge-km-ended { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-    .badge-km-paused { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+    .voucher-pill { font-family: monospace; font-weight: 800; font-size: 0.88rem; padding: 5px 12px; border-radius: 8px; background: #fff1f2; color: #e11d48; border: 1px dashed #fda4af; display: inline-block; letter-spacing: 0.5px; }
+    .promo-status { padding: 4px 10px; border-radius: 99px; font-weight: 700; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 5px; }
+    .promo-status.active { background: #dcfce7; color: #15803d; }
+    .promo-status.upcoming { background: #dbeafe; color: #1d4ed8; }
+    .promo-status.expired { background: #f1f5f9; color: #64748b; }
 
-    .badge-scope {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 3px 10px;
-        border-radius: 99px;
-        font-size: 0.76rem;
-        font-weight: 600;
-        background: #fff;
-        border: 1px solid #e2e8f0;
-        color: #334155;
-    }
-    .badge-km-type {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        padding: 4px 10px;
-        border-radius: 8px;
-        font-size: 0.78rem;
-        font-weight: 700;
-    }
-    .badge-type-cash { background: #dcfce7; color: #047857; }
-    .badge-type-percent { background: #e0f2fe; color: #0369a1; }
-    .badge-type-voucher { background: #fef3c7; color: #b45309; }
-
-    .hub-nav-pill-km { border: none; background: #f1f5f9; color: #475569; font-weight: 600; font-size: 0.85rem; border-radius: 10px; padding: 8px 16px; transition: all 0.2s; }
-    .hub-nav-pill-km.active { background: var(--ck-red); color: #fff; box-shadow: 0 4px 12px rgba(238,49,36,0.25); }
-    .hub-metric-tile-km { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; }
-    .hub-progress-track { height: 8px; background: #e2e8f0; border-radius: 99px; overflow: hidden; margin-top: 6px; }
-    .hub-progress-bar { height: 100%; border-radius: 99px; }
-
-    .table-km th { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; font-weight: 700; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
-    .table-km td { font-size: 0.88rem; vertical-align: middle; border-bottom: 1px solid #f1f5f9; }
+    .table-promo th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; font-weight: 700; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+    .table-promo td { font-size: 0.88rem; vertical-align: middle; border-bottom: 1px solid #f1f5f9; }
 </style>
 
-<div class="row g-3 mb-4">
-    <div class="col-12 col-sm-6 col-xl-3">
-        <div class="stat-card-km c-total" onclick="openPromoHub('all')" title="Nhấn để xem toàn cảnh chiến dịch khuyến mãi">
-            <div class="d-flex align-items-center justify-content-between">
-                <div>
-                    <small class="text-muted fw-bold">TỔNG CHƯƠNG TRÌNH</small>
-                    <div class="num-font fw-bold fs-3 mt-1 text-dark"><?= $cntTotal ?></div>
-                    <div class="stat-click-hint-km"><i class="fa-solid fa-chart-pie"></i> Xem cơ cấu chiến dịch ↗</div>
-                </div>
-                <div class="stat-icon-wrap-km" style="background: rgba(238,49,36,0.1); color: var(--ck-red);"><i class="fa-solid fa-tag"></i></div>
+<script>document.querySelector('body').classList.add('layout-fixed');</script>
+
+<div class="row g-4 mb-4">
+    <div class="col-12 col-md-6 col-xl-3">
+        <div class="stat-float-wrapper th-red">
+            <div class="sf-header-row">
+                <div class="sf-pill">TỔNG CHIẾN DỊCH</div>
+                <div class="sf-icon-box"><i class="fa-solid fa-ticket"></i></div>
             </div>
+            <div class="sf-body-row">
+                <span class="sf-num"><?= number_format($totalPromos) ?></span>
+                <span class="sf-unit">MÃ KM</span>
+            </div>
+            <div class="sf-footer-row"><i class="fa-solid fa-layer-group"></i> Toàn hệ thống Circle K</div>
         </div>
     </div>
-    <div class="col-12 col-sm-6 col-xl-3">
-        <div class="stat-card-km c-run" onclick="openPromoHub('running')" title="Nhấn để xem các ưu đãi đang kích hoạt">
-            <div class="d-flex align-items-center justify-content-between">
-                <div>
-                    <small class="text-muted fw-bold">ĐANG CHẠY</small>
-                    <div class="num-font fw-bold fs-3 mt-1" style="color: #10b981;"><?= $cntRunning ?></div>
-                    <div class="stat-click-hint-km" style="color: #10b981;"><i class="fa-solid fa-bolt"></i> Hiệu suất sử dụng ↗</div>
-                </div>
-                <div class="stat-icon-wrap-km" style="background: rgba(16,185,129,0.1); color: #10b981;"><i class="fa-solid fa-bolt"></i></div>
+
+    <div class="col-12 col-md-6 col-xl-3">
+        <div class="stat-float-wrapper th-green">
+            <div class="sf-header-row">
+                <div class="sf-pill">ĐANG KÍCH HOẠT</div>
+                <div class="sf-icon-box"><i class="fa-solid fa-bolt"></i></div>
             </div>
+            <div class="sf-body-row">
+                <span class="sf-num"><?= number_format($activePromos) ?></span>
+                <span class="sf-unit">CHƯƠNG TRÌNH</span>
+            </div>
+            <div class="sf-footer-row"><i class="fa-solid fa-circle-check"></i> Áp dụng trực tiếp tại POS</div>
         </div>
     </div>
-    <div class="col-12 col-sm-6 col-xl-3">
-        <div class="stat-card-km c-upc" onclick="openPromoHub('upcoming')" title="Nhấn để xem kế hoạch chương trình sắp tới">
-            <div class="d-flex align-items-center justify-content-between">
-                <div>
-                    <small class="text-muted fw-bold">SẮP DIỄN RA</small>
-                    <div class="num-font fw-bold fs-3 mt-1" style="color: #f59e0b;"><?= $cntUpcoming ?></div>
-                    <div class="stat-click-hint-km" style="color: #f59e0b;"><i class="fa-solid fa-clock"></i> Lịch trình tung mã ↗</div>
-                </div>
-                <div class="stat-icon-wrap-km" style="background: rgba(245,158,11,0.1); color: #f59e0b;"><i class="fa-solid fa-clock"></i></div>
+
+    <div class="col-12 col-md-6 col-xl-3">
+        <div class="stat-float-wrapper th-blue">
+            <div class="sf-header-row">
+                <div class="sf-pill">LƯỢT ÁP DỤNG</div>
+                <div class="sf-icon-box"><i class="fa-solid fa-users-viewfinder"></i></div>
             </div>
+            <div class="sf-body-row">
+                <span class="sf-num"><?= number_format($totalUsedCount) ?></span>
+                <span class="sf-unit">LƯỢT DÙNG</span>
+            </div>
+            <div class="sf-footer-row"><i class="fa-solid fa-receipt"></i> Ghi nhận từ hóa đơn bán hàng</div>
         </div>
     </div>
-    <div class="col-12 col-sm-6 col-xl-3">
-        <div class="stat-card-km c-end" onclick="openPromoHub('ended')" title="Nhấn để xem kiểm toán và lịch sử kết thúc">
-            <div class="d-flex align-items-center justify-content-between">
-                <div>
-                    <small class="text-muted fw-bold">ĐÃ KẾT THÚC</small>
-                    <div class="num-font fw-bold fs-3 mt-1 text-muted"><?= $cntEnded ?></div>
-                    <div class="stat-click-hint-km"><i class="fa-solid fa-calendar-check"></i> Kiểm toán & Xuất CSV ↗</div>
-                </div>
-                <div class="stat-icon-wrap-km" style="background: rgba(148,163,184,0.15); color: #64748b;"><i class="fa-solid fa-calendar-check"></i></div>
+
+    <div class="col-12 col-md-6 col-xl-3">
+        <div class="stat-float-wrapper th-amber">
+            <div class="sf-header-row">
+                <div class="sf-pill">CHỜ / ĐÃ KẾT THÚC</div>
+                <div class="sf-icon-box"><i class="fa-solid fa-clock-rotate-left"></i></div>
             </div>
+            <div class="sf-body-row">
+                <span class="sf-num"><?= number_format($upcomingPromos + $expiredPromos) ?></span>
+                <span class="sf-unit">MÃ KM</span>
+            </div>
+            <div class="sf-footer-row"><i class="fa-solid fa-calendar-days"></i> <?= $upcomingPromos ?> sắp mở · <?= $expiredPromos ?> hết hạn</div>
         </div>
     </div>
 </div>
@@ -315,654 +216,308 @@ require ROOT_PATH . '/includes/header.php';
         <div>
             <h5 class="panel-title">
                 <span class="title-icon" style="background: linear-gradient(135deg, var(--ck-red), var(--ck-orange))"><i class="fa-solid fa-tags"></i></span>
-                Danh sách Chiến dịch Khuyến mãi & Voucher
+                Quản lý Chương trình Khuyến mãi & Voucher
             </h5>
-            <div class="panel-subtitle ms-5">Quản lý mã giảm giá, thiết lập ưu đãi cho chuỗi cửa hàng Circle K Nha Trang</div>
+            <div class="panel-subtitle ms-5">Thiết lập mã giảm giá theo phần trăm hoặc tiền mặt đồng bộ trực tiếp với màn hình thu ngân POS</div>
         </div>
         <div class="d-flex align-items-center gap-2">
-            <button type="button" class="btn-ck btn-ck-soft" onclick="openPromoHub('all')">
-                <i class="fa-solid fa-chart-simple me-1"></i> Trung tâm Phân tích
-            </button>
-            <button type="button" class="btn-ck btn-ck-primary" data-bs-toggle="modal" data-bs-target="#modalAddPromo">
-                <i class="fa-solid fa-plus me-1"></i> Tạo khuyến mãi mới
-            </button>
+            <a href="../man_hinh_ban_hang/index.php" class="btn-ck btn-ck-soft text-decoration-none"><i class="fa-solid fa-cash-register me-1"></i> Mở màn hình POS</a>
+            <button type="button" class="btn-ck btn-ck-primary" onclick="openPromoModal()"><i class="fa-solid fa-plus me-1"></i> Thêm Voucher mới</button>
         </div>
     </div>
 
     <div class="row g-2 mb-3">
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-5">
             <div class="search-bar w-100">
                 <i class="fa-solid fa-magnifying-glass s-ico"></i>
-                <input type="text" id="filterPromoInput" placeholder="Tìm theo mã voucher (VD: CK20), tên chương trình..." onkeyup="filterPromotions()">
+                <input type="text" id="promoSearch" placeholder="Tìm theo mã voucher (VD: WELCOME10), tên chương trình..." oninput="filterPromos()">
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <select class="form-select" id="filterStatus" onchange="filterPromotions()" style="height: 44px; border-radius: 10px;">
+            <select class="form-select" id="promoTypeFilter" onchange="filterPromos()" style="height: 44px; border-radius: 10px;">
+                <option value="">Loại ưu đãi: Tất cả</option>
+                <option value="Giảm %">Giảm theo phần trăm (%)</option>
+                <option value="Giảm tiền">Giảm tiền trực tiếp (VNĐ)</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-4">
+            <select class="form-select" id="promoStatusFilter" onchange="filterPromos()" style="height: 44px; border-radius: 10px;">
                 <option value="">Trạng thái: Tất cả</option>
-                <option value="Đang chạy">Đang chạy</option>
-                <option value="Sắp diễn ra">Sắp diễn ra</option>
-                <option value="Đã kết thúc">Đã kết thúc</option>
-            </select>
-        </div>
-        <div class="col-6 col-md-2">
-            <select class="form-select" id="filterType" onchange="filterPromotions()" style="height: 44px; border-radius: 10px;">
-                <option value="">Loại: Tất cả</option>
-                <option value="Tiền mặt">Tiền mặt</option>
-                <option value="Phần trăm">Phần trăm</option>
-                <option value="Voucher">Voucher</option>
-            </select>
-        </div>
-        <div class="col-12 col-md-3">
-            <select class="form-select" id="filterStore" onchange="filterPromotions()" style="height: 44px; border-radius: 10px;">
-                <option value="">🏪 Toàn bộ chi nhánh</option>
-                <option value="Toàn chuỗi">Toàn chuỗi</option>
-                <?php foreach ($cuahang_list as $ch): ?>
-                    <option value="<?= htmlspecialchars($ch['ten_cua_hang']) ?>"><?= htmlspecialchars($ch['ten_cua_hang']) ?></option>
-                <?php endforeach; ?>
+                <option value="active">Đang chạy</option>
+                <option value="upcoming">Sắp diễn ra</option>
+                <option value="expired">Đã kết thúc / Hết lượt</option>
             </select>
         </div>
     </div>
 
     <div class="table-responsive">
-        <table class="table table-hover table-km align-middle">
+        <table class="table table-hover table-promo align-middle">
             <thead>
                 <tr>
                     <th>Mã Voucher</th>
-                    <th>Tên chương trình</th>
+                    <th>Tên chương trình khuyến mãi</th>
                     <th>Phạm vi áp dụng</th>
-                    <th>Loại ưu đãi</th>
-                    <th class="text-end">Mức giảm</th>
-                    <th class="text-center">Số lượng</th>
-                    <th>Thời gian áp dụng</th>
+                    <th>Loại & Giá trị</th>
+                    <th class="text-center">Số lượng còn</th>
+                    <th>Thời gian hiệu lực</th>
                     <th class="text-center">Trạng thái</th>
                     <th class="text-center">Thao tác</th>
                 </tr>
             </thead>
             <tbody id="promoTableBody">
-                <?php if (empty($promos)): ?>
-                    <tr>
-                        <td colspan="9" class="text-center py-5 text-muted">
-                            <i class="fa-solid fa-ticket fs-2 mb-2 d-block opacity-25"></i>
-                            Chưa có chương trình khuyến mãi nào trong hệ thống.
-                        </td>
-                    </tr>
-                <?php else: ?>
-                    <?php foreach ($promos as $pm): 
-                        $scopeText = !empty($pm['ten_cua_hang']) ? $pm['ten_cua_hang'] : 'Toàn chuỗi';
-                        $isAllStore = empty($pm['ten_cua_hang']);
-                        $valDisplay = ($pm['loai_km'] === 'Phần trăm') ? ($pm['gia_tri'] . '%') : (number_format($pm['gia_tri']) . ' VNĐ');
-                        $qtyDisplay = ($pm['so_luong'] === null) ? '∞ Vô hạn' : number_format($pm['so_luong']);
-                        $searchMeta = mb_strtolower($pm['ma_voucher'] . ' ' . $pm['ten_km'] . ' ' . $scopeText . ' ' . $pm['loai_km'] . ' ' . $pm['status_label'] . ' ' . $pm['gia_tri']);
-                    ?>
-                    <tr class="promo-item-row" 
-                        data-search="<?= $searchMeta ?>"
-                        data-status="<?= $pm['status_label'] ?>"
-                        data-type="<?= $pm['loai_km'] ?>"
-                        data-store="<?= $scopeText ?>">
-                        <td>
-                            <div class="code-pill">
-                                <span><?= htmlspecialchars($pm['ma_voucher']) ?></span>
-                                <button type="button" class="copy-btn ms-1" onclick="copyVoucherCode('<?= htmlspecialchars($pm['ma_voucher']) ?>', this)" title="Sao chép mã voucher">
-                                    <i class="fa-regular fa-copy"></i>
-                                </button>
-                            </div>
-                        </td>
-                        <td>
-                            <div class="fw-bold text-dark" style="font-size: 0.92rem;"><?= htmlspecialchars($pm['ten_km']) ?></div>
-                        </td>
-                        <td>
-                            <span class="badge-scope">
-                                <?php if ($isAllStore): ?>
-                                    <i class="fa-solid fa-globe text-danger"></i> Toàn chuỗi
-                                <?php else: ?>
-                                    <i class="fa-solid fa-store text-primary"></i> <?= htmlspecialchars($pm['ten_cua_hang']) ?>
-                                <?php endif; ?>
-                            </span>
-                        </td>
-                        <td>
-                            <?php if ($pm['loai_km'] === 'Tiền mặt'): ?>
-                                <span class="badge-km-type badge-type-cash"><i class="fa-solid fa-money-bill"></i> Tiền mặt</span>
-                            <?php elseif ($pm['loai_km'] === 'Phần trăm'): ?>
-                                <span class="badge-km-type badge-type-percent"><i class="fa-solid fa-percent"></i> Phần trăm</span>
-                            <?php else: ?>
-                                <span class="badge-km-type badge-type-voucher"><i class="fa-solid fa-ticket"></i> Voucher</span>
-                            <?php endif; ?>
-                        </td>
-                        <td class="text-end">
-                            <span class="num-font fw-bold text-dark fs-6"><?= $valDisplay ?></span>
-                        </td>
-                        <td class="text-center">
-                            <span class="fw-semibold <?= ($pm['so_luong'] === null) ? 'text-muted' : 'text-primary' ?>"><?= $qtyDisplay ?></span>
-                        </td>
-                        <td>
-                            <div class="small fw-semibold text-dark">
-                                <?= $pm['start_fmt'] ?> – <?= $pm['end_fmt'] ?>
-                            </div>
-                            <small class="text-muted" style="font-size: 0.72rem;">00:00 đến 23:59</small>
-                        </td>
-                        <td class="text-center">
-                            <span class="badge-status-km <?= $pm['status_class'] ?>">
-                                <?php if ($pm['status_key'] === 'running'): ?>
-                                    <i class="fa-solid fa-circle-check"></i> Đang chạy
-                                <?php elseif ($pm['status_key'] === 'upcoming'): ?>
-                                    <i class="fa-solid fa-clock"></i> Sắp diễn ra
-                                <?php elseif ($pm['status_key'] === 'ended'): ?>
-                                    <i class="fa-solid fa-circle-stop"></i> Đã kết thúc
-                                <?php else: ?>
-                                    <i class="fa-solid fa-pause"></i> Tạm dừng
-                                <?php endif; ?>
-                            </span>
-                        </td>
-                        <td class="text-center">
-                            <button type="button" class="btn btn-sm btn-light border px-2 py-1 me-1 text-primary" title="Xem chi tiết voucher" onclick="viewPromoDetail(<?= htmlspecialchars(json_encode($pm)) ?>)">
-                                <i class="fa-solid fa-eye"></i>
-                            </button>
-                            <button type="button" class="btn btn-sm btn-light border px-2 py-1 text-danger" title="Xóa khuyến mãi" onclick="deletePromo(<?= $pm['id'] ?>, '<?= htmlspecialchars($pm['ma_voucher']) ?>')">
-                                <i class="fa-solid fa-trash-can"></i>
-                            </button>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                <?php endif; ?>
+                <?php foreach ($promos as $km): 
+                    $isPercent = (mb_stripos($km['loai_km'], '%') !== false || mb_stripos($km['loai_km'], 'phần trăm') !== false);
+                ?>
+                <tr class="promo-row"
+                    data-search="<?= mb_strtolower($km['ma_voucher'] . ' ' . $km['ten_km'] . ' ' . ($km['ten_cua_hang'] ?? 'Toàn hệ thống')) ?>"
+                    data-type="<?= $isPercent ? 'Giảm %' : 'Giảm tiền' ?>"
+                    data-status="<?= $km['status_key'] ?>">
+                    <td><span class="voucher-pill"><?= htmlspecialchars($km['ma_voucher']) ?></span></td>
+                    <td>
+                        <div class="fw-bold text-dark"><?= htmlspecialchars($km['ten_km']) ?></div>
+                        <small class="text-muted">Đã áp dụng: <strong><?= (int)$km['used_count'] ?></strong> đơn hàng</small>
+                    </td>
+                    <td>
+                        <?php if (!empty($km['ten_cua_hang'])): ?>
+                            <span class="badge bg-light text-dark border"><i class="fa-solid fa-store text-danger me-1"></i><?= htmlspecialchars($km['ten_cua_hang']) ?></span>
+                        <?php else: ?>
+                            <span class="badge bg-primary-subtle text-primary"><i class="fa-solid fa-globe me-1"></i>Toàn hệ thống (12 CN)</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if ($isPercent): ?>
+                            <span class="num-font fw-bold text-danger fs-6">-<?= number_format($km['gia_tri']) ?>%</span>
+                            <div class="small text-muted">Chiết khấu %</div>
+                        <?php else: ?>
+                            <span class="num-font fw-bold text-success fs-6">-<?= number_format($km['gia_tri']) ?> ₫</span>
+                            <div class="small text-muted">Trừ tiền mặt</div>
+                        <?php endif; ?>
+                    </td>
+                    <td class="text-center">
+                        <span class="num-font fw-bold text-dark"><?= $km['so_luong'] !== null ? number_format($km['so_luong']) : '∞' ?></span>
+                    </td>
+                    <td>
+                        <div class="small fw-semibold text-dark"><i class="fa-regular fa-calendar-check text-success me-1"></i><?= date('d/m/Y H:i', strtotime($km['thoi_gian_bat_dau'])) ?></div>
+                        <div class="small text-muted"><i class="fa-regular fa-calendar-xmark text-danger me-1"></i><?= date('d/m/Y H:i', strtotime($km['thoi_gian_ket_thuc'])) ?></div>
+                    </td>
+                    <td class="text-center">
+                        <span class="promo-status <?= $km['status_key'] ?>">
+                            <i class="fa-solid <?= $km['status_key'] === 'active' ? 'fa-circle-check' : ($km['status_key'] === 'upcoming' ? 'fa-clock' : 'fa-circle-stop') ?>"></i>
+                            <?= $km['status_label'] ?>
+                        </span>
+                    </td>
+                    <td class="text-center">
+                        <button type="button" class="btn btn-sm btn-light border text-primary me-1" title="Chỉnh sửa"
+                                onclick='editPromo(<?= json_encode($km, JSON_UNESCAPED_UNICODE) ?>)'>
+                            <i class="fa-solid fa-pen-to-square"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-light border text-danger" title="Xóa voucher"
+                                onclick="deletePromo(<?= (int)$km['id'] ?>, '<?= htmlspecialchars(addslashes($km['ma_voucher'])) ?>')">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
             </tbody>
         </table>
-        <div id="noPromoMatchMsg" class="text-center py-5 text-muted" style="display: none;">
-            <i class="fa-solid fa-search fs-2 mb-2 d-block opacity-25"></i>
-            Không tìm thấy chương trình khuyến mãi nào phù hợp với từ khóa tìm kiếm.
+        <div id="emptyPromoMsg" class="text-center py-4 text-muted" style="display: none;">
+            <i class="fa-solid fa-ticket fs-2 mb-2 d-block opacity-25"></i> Không tìm thấy chương trình khuyến mãi phù hợp.
         </div>
     </div>
 </div>
 
-<div class="modal fade" id="modalPromoHub" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
+<div class="modal fade" id="modalPromoForm" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content" style="border-radius: 20px; border: none; box-shadow: 0 20px 60px rgba(0,0,0,0.15);">
             <div class="modal-header border-0 pb-0 px-4 pt-4">
-                <div>
-                    <h5 class="modal-title fw-bold text-dark d-flex align-items-center gap-2">
-                        <span class="title-icon" style="background: linear-gradient(135deg, var(--ck-red), #f97316); width:36px; height:36px; border-radius:10px; display:inline-flex; align-items:center; justify-content:center; color:#fff;">
-                            <i class="fa-solid fa-chart-pie"></i>
-                        </span>
-                        Trung tâm Phân tích & Kiểm toán Khuyến mãi Circle K
-                    </h5>
-                    <div class="small text-muted ms-5">Báo cáo hiệu suất voucher, ngân sách chiết khấu & chiến dịch toàn chuỗi Nha Trang</div>
-                </div>
+                <h5 class="modal-title fw-bold text-dark" id="promoModalTitle"><i class="fa-solid fa-tags text-danger me-2"></i>Thêm Chương trình Khuyến mãi</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-
             <div class="modal-body p-4">
-                <div class="d-flex flex-wrap gap-2 mb-4 p-1 bg-light rounded-3" id="promoHubTabsNav">
-                    <button class="hub-nav-pill-km active flex-grow-1" onclick="switchPromoHubTab('all', this)"><i class="fa-solid fa-tag me-1"></i> Cơ cấu Toàn chiến dịch</button>
-                    <button class="hub-nav-pill-km flex-grow-1" onclick="switchPromoHubTab('running', this)"><i class="fa-solid fa-bolt me-1"></i> Đang kích hoạt (<?= $cntRunning ?>)</button>
-                    <button class="hub-nav-pill-km flex-grow-1" onclick="switchPromoHubTab('upcoming', this)"><i class="fa-solid fa-clock me-1"></i> Lịch sắp tới (<?= $cntUpcoming ?>)</button>
-                    <button class="hub-nav-pill-km flex-grow-1" onclick="switchPromoHubTab('ended', this)"><i class="fa-solid fa-calendar-check me-1"></i> Lịch sử & Kiểm toán (<?= $cntEnded ?>)</button>
-                </div>
-
-                <div id="promoTabPane_all" class="promo-hub-pane">
-                    <div class="row g-3 mb-3">
-                        <div class="col-12 col-md-4">
-                            <div class="hub-metric-tile-km text-center">
-                                <small class="text-muted fw-bold">TỔNG MÃ KHUYẾN MÃI</small>
-                                <div class="num-font fw-bold text-dark fs-3 mt-1"><?= $cntTotal ?> chương trình</div>
-                                <span class="badge bg-primary-subtle text-primary mt-1">Đầy đủ các phân nhóm</span>
-                            </div>
-                        </div>
-                        <div class="col-12 col-md-4">
-                            <div class="hub-metric-tile-km text-center">
-                                <small class="text-muted fw-bold">TỶ LỆ KÍCH HOẠT HIỆN TẠI</small>
-                                <?php $runRate = $cntTotal > 0 ? round(($cntRunning / $cntTotal) * 100, 1) : 0; ?>
-                                <div class="num-font fw-bold text-success fs-3 mt-1"><?= $runRate ?>%</div>
-                                <small class="text-muted"><?= $cntRunning ?> đang chạy đồng thời</small>
-                            </div>
-                        </div>
-                        <div class="col-12 col-md-4">
-                            <div class="hub-metric-tile-km text-center">
-                                <small class="text-muted fw-bold">PHẠM VI ÁP DỤNG</small>
-                                <div class="num-font fw-bold text-primary fs-3 mt-1">10 Cửa hàng</div>
-                                <small class="text-muted">Toàn chuỗi & Chi nhánh riêng</small>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="p-3 bg-light rounded-3 border">
-                        <div class="fw-bold text-dark mb-2 small"><i class="fa-solid fa-chart-column me-1 text-danger"></i> PHÂN BỔ LOẠI KHUYẾN MÃI</div>
-                        <div class="d-flex justify-content-between small fw-semibold mb-1">
-                            <span>Ưu đãi Tiền mặt trực tiếp</span>
-                            <span>50%</span>
-                        </div>
-                        <div class="hub-progress-track mb-3">
-                            <div class="hub-progress-bar" style="width: 50%; background: #10b981;"></div>
-                        </div>
-                        <div class="d-flex justify-content-between small fw-semibold mb-1">
-                            <span>Giảm theo Phần trăm (%)</span>
-                            <span>33.3%</span>
-                        </div>
-                        <div class="hub-progress-track mb-3">
-                            <div class="hub-progress-bar" style="width: 33.3%; background: #0ea5e9;"></div>
-                        </div>
-                        <div class="d-flex justify-content-between small fw-semibold mb-1">
-                            <span>Voucher giá trị tặng kèm</span>
-                            <span>16.7%</span>
-                        </div>
-                        <div class="hub-progress-track">
-                            <div class="hub-progress-bar" style="width: 16.7%; background: #f59e0b;"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="promoTabPane_running" class="promo-hub-pane" style="display: none;">
-                    <div class="p-3 bg-light rounded-3 border mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <div>
-                                <h6 class="fw-bold text-dark mb-0"><i class="fa-solid fa-bolt text-success me-1"></i> Các chiến dịch đang có hiệu lực</h6>
-                                <small class="text-muted">Thu ngân có thể áp dụng ngay tại màn hình bán hàng POS.</small>
-                            </div>
-                            <button type="button" class="btn btn-sm btn-success px-3" onclick="filterTableByStatus('Đang chạy')">
-                                <i class="fa-solid fa-filter me-1"></i> Lọc danh sách Đang chạy
-                            </button>
-                        </div>
-                        <div class="row g-2 mt-2">
-                            <?php foreach ($promos as $pm): if ($pm['status_key'] === 'running'): ?>
-                            <div class="col-12 col-md-6">
-                                <div class="p-2 bg-white rounded border">
-                                    <div class="d-flex justify-content-between">
-                                        <strong class="font-monospace text-danger"><?= htmlspecialchars($pm['ma_voucher']) ?></strong>
-                                        <span class="badge bg-success-subtle text-success">Active</span>
-                                    </div>
-                                    <div class="small text-dark text-truncate mt-1"><?= htmlspecialchars($pm['ten_km']) ?></div>
-                                    <div class="small text-muted mt-1">Hạn dùng: <?= $pm['end_fmt'] ?></div>
-                                </div>
-                            </div>
-                            <?php endif; endforeach; ?>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="promoTabPane_upcoming" class="promo-hub-pane" style="display: none;">
-                    <div class="p-3 bg-light rounded-3 border mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <div>
-                                <h6 class="fw-bold text-dark mb-0"><i class="fa-solid fa-clock text-warning me-1"></i> Chiến dịch đã lên lịch sắp tới</h6>
-                                <small class="text-muted">Hệ thống sẽ tự động kích hoạt khi đến ngày bắt đầu.</small>
-                            </div>
-                            <button type="button" class="btn btn-sm btn-warning text-dark px-3" onclick="filterTableByStatus('Sắp diễn ra')">
-                                <i class="fa-solid fa-filter me-1"></i> Lọc danh sách Sắp diễn ra
-                            </button>
-                        </div>
-                        <div class="row g-2 mt-2">
-                            <?php foreach ($promos as $pm): if ($pm['status_key'] === 'upcoming'): ?>
-                            <div class="col-12 col-md-6">
-                                <div class="p-2 bg-white rounded border">
-                                    <div class="d-flex justify-content-between">
-                                        <strong class="font-monospace text-warning"><?= htmlspecialchars($pm['ma_voucher']) ?></strong>
-                                        <span class="badge bg-warning-subtle text-warning">Upcoming</span>
-                                    </div>
-                                    <div class="small text-dark text-truncate mt-1"><?= htmlspecialchars($pm['ten_km']) ?></div>
-                                    <div class="small text-muted mt-1">Bắt đầu: <?= $pm['start_fmt'] ?></div>
-                                </div>
-                            </div>
-                            <?php endif; endforeach; ?>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="promoTabPane_ended" class="promo-hub-pane" style="display: none;">
-                    <div class="p-3 bg-light rounded-3 border mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <div>
-                                <h6 class="fw-bold text-dark mb-0"><i class="fa-solid fa-calendar-check text-secondary me-1"></i> Lịch sử kiểm toán chiến dịch đã hoàn tất</h6>
-                                <small class="text-muted">Dữ liệu lưu trữ phục vụ đối soát doanh thu và báo cáo ban giám đốc.</small>
-                            </div>
-                            <button type="button" class="btn btn-sm btn-secondary px-3" onclick="filterTableByStatus('Đã kết thúc')">
-                                <i class="fa-solid fa-filter me-1"></i> Lọc danh sách Đã kết thúc
-                            </button>
-                        </div>
-                        <div class="row g-2 mt-2">
-                            <?php foreach ($promos as $pm): if ($pm['status_key'] === 'ended'): ?>
-                            <div class="col-12 col-md-6">
-                                <div class="p-2 bg-white rounded border">
-                                    <div class="d-flex justify-content-between">
-                                        <strong class="font-monospace text-muted"><?= htmlspecialchars($pm['ma_voucher']) ?></strong>
-                                        <span class="badge bg-light text-muted border">Closed</span>
-                                    </div>
-                                    <div class="small text-dark text-truncate mt-1"><?= htmlspecialchars($pm['ten_km']) ?></div>
-                                    <div class="small text-muted mt-1">Đã kết thúc: <?= $pm['end_fmt'] ?></div>
-                                </div>
-                            </div>
-                            <?php endif; endforeach; ?>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="modal-footer border-0 pt-0 px-4 pb-4">
-                <button type="button" class="btn-ck btn-ck-soft" data-bs-dismiss="modal">Đóng</button>
-                <button type="button" class="btn-ck btn-ck-primary px-4" onclick="exportPromoToCSV()">
-                    <i class="fa-solid fa-file-csv me-1"></i> Xuất danh sách khuyến mãi (CSV)
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="modal fade" id="modalAddPromo" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content" style="border-radius: 18px; border: none;">
-            <div class="modal-header border-0 pb-0 px-4 pt-4">
-                <h5 class="modal-title fw-bold text-dark"><i class="fa-solid fa-ticket text-danger me-2"></i>Tạo chương trình Khuyến mãi mới</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="formAddPromo" onsubmit="submitAddPromo(event)">
-                <div class="modal-body p-4">
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold text-muted">MÃ VOUCHER (VIẾT HOA, KHÔNG DẤU)</label>
-                        <input type="text" class="form-control font-monospace fw-bold" name="ma_voucher" placeholder="VD: TET2027, HAPPYHOUR..." required style="text-transform: uppercase;">
-                    </div>
+                <form id="formPromo" onsubmit="submitPromoForm(event)">
+                    <input type="hidden" id="promo_id" value="0">
                     <div class="mb-3">
                         <label class="form-label small fw-bold text-muted">TÊN CHƯƠNG TRÌNH KHUYẾN MÃI</label>
-                        <input type="text" class="form-control fw-semibold" name="ten_km" placeholder="VD: Mừng Tết Rộn Ràng, Giảm Giá Cà Phê..." required>
+                        <input type="text" class="form-control" id="ten_km" required placeholder="VD: Giảm 15% mừng lễ / Happy Hour...">
                     </div>
-                    <div class="row g-2 mb-3">
-                        <div class="col-6">
-                            <label class="form-label small fw-bold text-muted">HÌNH THỨC GIẢM</label>
-                            <select class="form-select fw-semibold" name="loai_km" id="addTypeSelect" onchange="adjustAddValLabel()">
-                                <option value="Tiền mặt">Tiền mặt (VNĐ)</option>
-                                <option value="Phần trăm">Phần trăm (%)</option>
-                                <option value="Voucher">Voucher tiền mặt</option>
-                            </select>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-muted">MÃ VOUCHER (IN HOA)</label>
+                            <input type="text" class="form-control fw-bold text-uppercase font-monospace" id="ma_voucher" required placeholder="VD: SUMMER15">
                         </div>
-                        <div class="col-6">
-                            <label class="form-label small fw-bold text-muted" id="addValLabel">MỨC GIẢM (VNĐ)</label>
-                            <input type="number" class="form-control num-font fw-bold" name="gia_tri" placeholder="VD: 20000 hoặc 10" required>
-                        </div>
-                    </div>
-                    <div class="row g-2 mb-3">
-                        <div class="col-6">
-                            <label class="form-label small fw-bold text-muted">SỐ LƯỢNG MÃ (ĐỂ TRỐNG = VÔ HẠN)</label>
-                            <input type="number" class="form-control" name="so_luong" placeholder="Vô hạn">
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label small fw-bold text-muted">PHẠM VI ÁP DỤNG</label>
-                            <select class="form-select" name="cuahang_id">
-                                <option value="">Toàn chuỗi Nha Trang</option>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-muted">CHI NHÁNH ÁP DỤNG</label>
+                            <select class="form-select" id="cuahang_id">
+                                <option value="">🌐 Toàn hệ thống (12 Chi nhánh)</option>
                                 <?php foreach ($cuahang_list as $ch): ?>
-                                    <option value="<?= $ch['id'] ?>"><?= htmlspecialchars($ch['ten_cua_hang']) ?></option>
+                                    <option value="<?= $ch['id'] ?>">🏪 <?= htmlspecialchars($ch['ten_cua_hang']) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                     </div>
-                    <div class="row g-2">
-                        <div class="col-6">
-                            <label class="form-label small fw-bold text-muted">NGÀY BẮT ĐẦU</label>
-                            <input type="date" class="form-control" name="thoi_gian_bat_dau" value="<?= date('Y-m-d') ?>" required>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-muted">LOẠI KHUYẾN MÃI</label>
+                            <select class="form-select" id="loai_km">
+                                <option value="Giảm %">Giảm %</option>
+                                <option value="Giảm tiền">Giảm tiền (VNĐ)</option>
+                            </select>
                         </div>
-                        <div class="col-6">
-                            <label class="form-label small fw-bold text-muted">NGÀY KẾT THÚC</label>
-                            <input type="date" class="form-control" name="thoi_gian_ket_thuc" value="<?= date('Y-m-d', strtotime('+30 days')) ?>" required>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-muted">GIÁ TRỊ GIẢM</label>
+                            <input type="number" step="0.01" min="1" class="form-control num-font fw-bold" id="gia_tri" required placeholder="10 hoặc 5000">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-muted">SỐ LƯỢNG MÃ</label>
+                            <input type="number" min="0" class="form-control num-font" id="so_luong" placeholder="Để trống = Vô hạn">
                         </div>
                     </div>
-                </div>
-                <div class="modal-footer border-0 pt-0 px-4 pb-4">
-                    <button type="button" class="btn-ck btn-ck-soft" data-bs-dismiss="modal">Hủy bỏ</button>
-                    <button type="submit" class="btn-ck btn-ck-primary px-4"><i class="fa-solid fa-check me-1"></i> Khởi tạo Voucher</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<div class="modal fade" id="modalViewPromo" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content" style="border-radius: 18px; border: none;">
-            <div class="modal-header border-0 pb-0 px-4 pt-4">
-                <h5 class="modal-title fw-bold text-dark"><i class="fa-solid fa-qrcode text-danger me-2"></i>Thẻ Voucher Điện tử</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body p-4 text-center">
-                <div class="p-3 bg-light rounded-3 border mb-3">
-                    <div class="fw-bold fs-5 text-dark" id="vTitle">Ưu đãi Circle K</div>
-                    <div class="display-6 font-monospace fw-bold text-danger my-2" id="vCode">CK20</div>
-                    <div class="badge bg-danger fs-6 px-3 py-2" id="vDiscount">GIẢM 20.000 VNĐ</div>
-                </div>
-                <div class="text-start small p-3 bg-white rounded border">
-                    <div class="d-flex justify-content-between mb-1">
-                        <span class="text-muted">Phạm vi:</span><strong id="vScope">Toàn chuỗi</strong>
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-muted">THỜI GIAN BẮT ĐẦU</label>
+                            <input type="datetime-local" class="form-control" id="thoi_gian_bat_dau" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-muted">THỜI GIAN KẾT THÚC</label>
+                            <input type="datetime-local" class="form-control" id="thoi_gian_ket_thuc" required>
+                        </div>
                     </div>
-                    <div class="d-flex justify-content-between mb-1">
-                        <span class="text-muted">Thời hạn:</span><span id="vTime">17/10/2026 - 31/12/2026</span>
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn-ck btn-ck-soft" data-bs-dismiss="modal">Hủy</button>
+                        <button type="submit" class="btn-ck btn-ck-primary px-4" id="btnSavePromo"><i class="fa-solid fa-floppy-disk me-1"></i> Lưu Voucher</button>
                     </div>
-                    <div class="d-flex justify-content-between mb-1">
-                        <span class="text-muted">Số lượng cấp:</span><span id="vQty">Vô hạn</span>
-                    </div>
-                    <div class="d-flex justify-content-between pt-2 border-top">
-                        <span class="text-muted">Trạng thái:</span><span id="vStatus" class="fw-bold">Đang chạy</span>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer border-0 pt-0 px-4 pb-4">
-                <button type="button" class="btn-ck btn-ck-primary w-100" data-bs-dismiss="modal">Đóng thẻ</button>
+                </form>
             </div>
         </div>
     </div>
 </div>
 
 <script>
-    function filterPromotions(forcedKw) {
-        let kw = '';
-        if (typeof forcedKw === 'string') {
-            kw = forcedKw;
-        } else {
-            const localInp = document.getElementById('filterPromoInput');
-            if (localInp && localInp.value.trim() !== '') {
-                kw = localInp.value;
-            } else {
-                const headerInp = document.querySelector('input[placeholder*="SKU"], input[placeholder*="hóa đơn"], input[placeholder*="cửa hàng"]');
-                if (headerInp) kw = headerInp.value;
-            }
-        }
-        kw = kw.toLowerCase().trim();
+    function filterPromos() {
+        const kw = document.getElementById('promoSearch').value.toLowerCase().trim();
+        const type = document.getElementById('promoTypeFilter').value;
+        const st = document.getElementById('promoStatusFilter').value;
+        let count = 0;
 
-        const stVal    = document.getElementById('filterStatus').value;
-        const typeVal  = document.getElementById('filterType').value;
-        const storeVal = document.getElementById('filterStore').value;
-
-        const rows = document.querySelectorAll('.promo-item-row');
-        let visibleCount = 0;
-
-        rows.forEach(r => {
-            const rowSearch = r.getAttribute('data-search') || '';
-            const rowStatus = r.getAttribute('data-status') || '';
-            const rowType   = r.getAttribute('data-type') || '';
-            const rowStore  = r.getAttribute('data-store') || '';
-
-            const matchKw    = (kw === '' || rowSearch.includes(kw));
-            const matchSt    = (!stVal || rowStatus === stVal);
-            const matchType  = (!typeVal || rowType === typeVal);
-            const matchStore = (!storeVal || rowStore === storeVal);
-
-            if (matchKw && matchSt && matchType && matchStore) {
+        document.querySelectorAll('.promo-row').forEach(r => {
+            const mKw = r.dataset.search.includes(kw);
+            const mType = !type || r.dataset.type === type;
+            const mSt = !st || r.dataset.status === st;
+            if (mKw && mType && mSt) {
                 r.style.display = '';
-                visibleCount++;
+                count++;
             } else {
                 r.style.display = 'none';
             }
         });
 
-        document.getElementById('noPromoMatchMsg').style.display = (visibleCount === 0) ? '' : 'none';
+        document.getElementById('emptyPromoMsg').style.display = count === 0 ? '' : 'none';
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
-        const localInp = document.getElementById('filterPromoInput');
-        const allInputs = document.querySelectorAll('input');
-
-        allInputs.forEach(inp => {
-            const ph = (inp.getAttribute('placeholder') || '').toLowerCase();
-            if (ph.includes('tìm hóa đơn') || ph.includes('sku') || ph.includes('cửa hàng')) {
-                inp.addEventListener('input', function() {
-                    if (localInp) localInp.value = this.value;
-                    filterPromotions(this.value);
-                });
-                inp.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (localInp) localInp.value = this.value;
-                        filterPromotions(this.value);
-                    }
-                });
-
-                if (inp.value.trim() !== '') {
-                    if (localInp) localInp.value = inp.value;
-                    filterPromotions(inp.value);
-                }
-            }
-        });
-
-        document.addEventListener('keydown', function(e) {
-            if ((e.ctrlKey && e.key.toLowerCase() === 'k') || e.key === 'F2') {
-                e.preventDefault();
-                const target = localInp || document.querySelector('input[placeholder*="SKU"]');
-                if (target) {
-                    target.focus();
-                    target.select();
-                }
-            }
-        });
-    });
-
-    function openPromoHub(tabKey) {
-        new bootstrap.Modal(document.getElementById('modalPromoHub')).show();
-        const navBtns = document.querySelectorAll('#promoHubTabsNav .hub-nav-pill-km');
-        let targetBtn = navBtns[0];
-        if (tabKey === 'running') targetBtn = navBtns[1];
-        else if (tabKey === 'upcoming') targetBtn = navBtns[2];
-        else if (tabKey === 'ended') targetBtn = navBtns[3];
-        switchPromoHubTab(tabKey, targetBtn);
+    function openPromoModal() {
+        document.getElementById('promoModalTitle').innerHTML = '<i class="fa-solid fa-tags text-danger me-2"></i>Thêm Chương trình Khuyến mãi';
+        document.getElementById('promo_id').value = 0;
+        document.getElementById('ten_km').value = '';
+        document.getElementById('ma_voucher').value = '';
+        document.getElementById('cuahang_id').value = '';
+        document.getElementById('loai_km').value = 'Giảm %';
+        document.getElementById('gia_tri').value = '';
+        document.getElementById('so_luong').value = 200;
+        document.getElementById('thoi_gian_bat_dau').value = '2026-10-01T00:00';
+        document.getElementById('thoi_gian_ket_thuc').value = '2026-12-31T23:59';
+        new bootstrap.Modal(document.getElementById('modalPromoForm')).show();
     }
 
-    function switchPromoHubTab(tabKey, btnEl) {
-        document.querySelectorAll('#promoHubTabsNav .hub-nav-pill-km').forEach(b => b.classList.remove('active'));
-        if (btnEl) btnEl.classList.add('active');
-        document.querySelectorAll('.promo-hub-pane').forEach(p => p.style.display = 'none');
-        const activePane = document.getElementById('promoTabPane_' + tabKey);
-        if (activePane) activePane.style.display = '';
+    function editPromo(km) {
+        document.getElementById('promoModalTitle').innerHTML = '<i class="fa-solid fa-pen-to-square text-primary me-2"></i>Chỉnh sửa Voucher [' + km.ma_voucher + ']';
+        document.getElementById('promo_id').value = km.id;
+        document.getElementById('ten_km').value = km.ten_km;
+        document.getElementById('ma_voucher').value = km.ma_voucher;
+        document.getElementById('cuahang_id').value = km.cuahang_id || '';
+        document.getElementById('loai_km').value = (km.loai_km && km.loai_km.includes('%')) ? 'Giảm %' : 'Giảm tiền';
+        document.getElementById('gia_tri').value = parseFloat(km.gia_tri);
+        document.getElementById('so_luong').value = km.so_luong !== null ? km.so_luong : '';
+        document.getElementById('thoi_gian_bat_dau').value = km.thoi_gian_bat_dau.replace(' ', 'T').slice(0, 16);
+        document.getElementById('thoi_gian_ket_thuc').value = km.thoi_gian_ket_thuc.replace(' ', 'T').slice(0, 16);
+        new bootstrap.Modal(document.getElementById('modalPromoForm')).show();
     }
 
-    function filterTableByStatus(statusName) {
-        const modalEl = document.getElementById('modalPromoHub');
-        const modal = bootstrap.Modal.getInstance(modalEl);
-        if (modal) modal.hide();
-
-        document.getElementById('filterStatus').value = statusName;
-        filterPromotions();
-        document.querySelector('.table-responsive').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    function copyVoucherCode(code, btnEl) {
-        navigator.clipboard.writeText(code).then(() => {
-            const originalHtml = btnEl.innerHTML;
-            btnEl.innerHTML = '<i class="fa-solid fa-check text-success"></i>';
-            setTimeout(() => { btnEl.innerHTML = originalHtml; }, 1500);
-        });
-    }
-
-    function viewPromoDetail(pm) {
-        document.getElementById('vTitle').textContent = pm.ten_km;
-        document.getElementById('vCode').textContent  = pm.ma_voucher;
-        const discountStr = (pm.loai_km === 'Phần trăm') ? ('GIẢM ' + pm.gia_tri + '%') : ('GIẢM ' + parseInt(pm.gia_tri).toLocaleString() + ' VNĐ');
-        document.getElementById('vDiscount').textContent = discountStr;
-        document.getElementById('vScope').textContent  = pm.ten_cua_hang ? pm.ten_cua_hang : 'Toàn chuỗi Circle K';
-        document.getElementById('vTime').textContent   = pm.start_fmt + ' đến ' + pm.end_fmt;
-        document.getElementById('vQty').textContent    = (pm.so_luong === null) ? '∞ Vô hạn' : pm.so_luong + ' voucher';
-        document.getElementById('vStatus').textContent = pm.status_label;
-        new bootstrap.Modal(document.getElementById('modalViewPromo')).show();
-    }
-
-    function adjustAddValLabel() {
-        const t = document.getElementById('addTypeSelect').value;
-        document.getElementById('addValLabel').textContent = (t === 'Phần trăm') ? 'MỨC GIẢM (%)' : 'MỨC GIẢM (VNĐ)';
-    }
-
-    function submitAddPromo(e) {
+    function submitPromoForm(e) {
         e.preventDefault();
-        const fd = new FormData(document.getElementById('formAddPromo'));
-        fd.append('action', 'add_promo');
+        const fd = new FormData();
+        fd.append('action', 'save_promo');
+        fd.append('id', document.getElementById('promo_id').value);
+        fd.append('ten_km', document.getElementById('ten_km').value);
+        fd.append('ma_voucher', document.getElementById('ma_voucher').value);
+        fd.append('cuahang_id', document.getElementById('cuahang_id').value);
+        fd.append('loai_km', document.getElementById('loai_km').value);
+        fd.append('gia_tri', document.getElementById('gia_tri').value);
+        fd.append('so_luong', document.getElementById('so_luong').value);
+        fd.append('thoi_gian_bat_dau', document.getElementById('thoi_gian_bat_dau').value);
+        fd.append('thoi_gian_ket_thuc', document.getElementById('thoi_gian_ket_thuc').value);
 
         fetch(window.location.href, { method: 'POST', body: fd })
             .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    location.reload();
-                } else {
-                    alert('Lỗi: ' + data.message);
-                }
+            .then(d => {
+                if (d.success) location.reload();
+                else alert(d.message);
             })
-            .catch(err => alert('Lỗi kết nối máy chủ: ' + err));
+            .catch(err => alert('Lỗi kết nối: ' + err));
     }
 
     function deletePromo(id, code) {
-        if (!confirm(`Bạn có chắc chắn muốn xóa chương trình khuyến mãi ${code}?`)) return;
+        if (!confirm('Bạn có chắc muốn xóa mã voucher [' + code + '] không?')) return;
         const fd = new FormData();
         fd.append('action', 'delete_promo');
         fd.append('id', id);
 
         fetch(window.location.href, { method: 'POST', body: fd })
             .then(r => r.json())
-            .then(data => {
-                if (data.success) location.reload();
-                else alert('Không thể xóa: ' + data.message);
+            .then(d => {
+                if (d.success) location.reload();
+                else alert('Lỗi xóa: ' + d.message);
             })
             .catch(err => alert('Lỗi kết nối: ' + err));
     }
 
-    function exportPromoToCSV() {
-        const rows = document.querySelectorAll('.promo-item-row');
-        if (rows.length === 0) return alert('Không có dữ liệu để xuất!');
+    document.addEventListener('DOMContentLoaded', function() {
+        function initSidebarScroll() {
+            const viewport = document.querySelector('.os-viewport') || document.querySelector('.sidebar');
+            if (viewport) {
+                const savedScroll = localStorage.getItem('ck_sidebar_scroll_master');
+                if (savedScroll) {
+                    viewport.scrollTop = parseInt(savedScroll, 10);
+                }
+                viewport.addEventListener('scroll', () => {
+                    localStorage.setItem('ck_sidebar_scroll_master', viewport.scrollTop);
+                });
+            } else {
+                setTimeout(initSidebarScroll, 100);
+            }
+        }
+        initSidebarScroll();
 
-        let csv = "\uFEFF";
-        csv += "Mã Voucher,Tên chương trình,Phạm vi,Loại ưu đãi,Mức giảm,Số lượng,Thời gian áp dụng,Trạng thái\n";
-
-        rows.forEach(r => {
-            const code  = r.querySelector('.code-pill span').innerText.trim();
-            const name  = r.querySelector('td:nth-child(2)').innerText.trim();
-            const scope = r.getAttribute('data-store') || 'Toàn chuỗi';
-            const type  = r.getAttribute('data-type') || '';
-            const val   = r.querySelector('td:nth-child(5)').innerText.trim();
-            const qty   = r.querySelector('td:nth-child(6)').innerText.trim();
-            const time  = r.querySelector('td:nth-child(7)').innerText.replace(/\n/g, ' ').trim();
-            const st    = r.getAttribute('data-status') || '';
-
-            csv += `"${code}","${name}","${scope}","${type}","${val}","${qty}","${time}","${st}"\n`;
+        window.addEventListener('beforeunload', () => {
+            const viewport = document.querySelector('.os-viewport') || document.querySelector('.sidebar');
+            if (viewport) {
+                localStorage.setItem('ck_sidebar_scroll_master', viewport.scrollTop);
+            }
         });
 
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute("download", `Bao_cao_Khuyen_Mai_CircleK_${new Date().toISOString().slice(0,10)}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    }
-</script>
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
         document.querySelectorAll('aside a, .sidebar a, nav a, .nav-link').forEach(link => {
             const href = link.getAttribute('href') || '';
-            if (href.includes('quan_ly_khuyen_mai') || href.includes('khuyen_mai')) {
+            if (href.includes('quan_ly_khuyen_mai')) {
                 link.classList.add('active');
-                
-                // Nền gradient đỏ cam & đổ bóng phát sáng giống hệt ảnh 1
                 link.style.setProperty('background', 'linear-gradient(135deg, #ee3124 0%, #ff4b3a 100%)', 'important');
                 link.style.setProperty('color', '#ffffff', 'important');
                 link.style.setProperty('border-radius', '16px', 'important');
                 link.style.setProperty('box-shadow', '0 8px 24px rgba(238, 49, 36, 0.38)', 'important');
                 link.style.setProperty('border', 'none', 'important');
 
-                // Toàn bộ chữ bên trong thành màu trắng
                 link.querySelectorAll('*').forEach(el => {
                     el.style.setProperty('color', '#ffffff', 'important');
                 });
 
-                // Ô chứa icon thành nền trắng mờ (translucent)
                 const iconBox = link.querySelector('div, span, .nav-icon, .icon-wrap, .sidebar-icon');
                 if (iconBox) {
                     iconBox.style.setProperty('background', 'rgba(255, 255, 255, 0.25)', 'important');

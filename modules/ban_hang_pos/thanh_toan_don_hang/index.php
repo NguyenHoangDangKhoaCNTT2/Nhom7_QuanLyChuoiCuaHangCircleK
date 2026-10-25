@@ -144,7 +144,6 @@ require ROOT_PATH . '/includes/header.php';
     .quick-cash-chip { border: 1px solid var(--border-light); background: #fff; border-radius: 10px; padding: 8px 16px; font-size: 0.88rem; font-weight: 700; color: #334155; cursor: pointer; transition: all 0.15s; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
     .quick-cash-chip:hover { background: #f1f5f9; border-color: #cbd5e1; transform: translateY(-1px); }
     
-    /* Các style QR và Mockup thẻ giữ nguyên */
     .vietqr-card { background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 20px; padding: 24px; max-width: 380px; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.06); }
     .qr-frame { position: relative; width: 220px; height: 220px; margin: 0 auto 16px; padding: 10px; background: #fff; border-radius: 16px; border: 2px solid #e2e8f0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .qr-copy-row { background: #f8fafc; border-radius: 10px; padding: 8px 12px; font-size: 0.82rem; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border: 1px solid #f1f5f9; }
@@ -153,56 +152,19 @@ require ROOT_PATH . '/includes/header.php';
     .card-emv-mockup { background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 20px; padding: 24px; max-width: 380px; margin: 0 auto; color: #fff; box-shadow: 0 14px 36px rgba(15, 23, 42, 0.3); position: relative; overflow: hidden; }
     .emv-chip { width: 44px; height: 32px; background: linear-gradient(135deg, #fbbf24, #d97706); border-radius: 6px; display: inline-block; }
 
-    /* STYLE CHO BILL IN RA (THIẾT KẾ MỚI) */
-    .receipt-print-box {
-        background: #fff;
-        border: 1px solid #cbd5e1;
-        border-radius: 0px; /* Bill thật không bo góc */
-        padding: 20px;
-        font-family: 'Courier New', Courier, monospace; /* Font máy in nhiệt */
-        color: #000;
-        max-width: 360px;
-        margin: 0 auto;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-        font-size: 0.85rem;
-        line-height: 1.4;
-    }
-    .receipt-print-box .dashed-line {
-        border-bottom: 1px dashed #000;
-        margin: 12px 0;
-    }
-    .receipt-print-box .brand-logo {
-        font-family: 'Arial Black', Arial, sans-serif;
-        font-size: 1.5rem;
-        font-weight: 900;
-        letter-spacing: -1px;
-        margin-bottom: 5px;
-        text-transform: uppercase;
-    }
+    .receipt-print-box { background: #fff; border: 1px solid #cbd5e1; border-radius: 0px; padding: 20px; font-family: 'Courier New', Courier, monospace; color: #000; max-width: 360px; margin: 0 auto; box-shadow: 0 10px 25px rgba(0,0,0,0.1); font-size: 0.85rem; line-height: 1.4; }
+    .receipt-print-box .dashed-line { border-bottom: 1px dashed #000; margin: 12px 0; }
+    .receipt-print-box .brand-logo { font-family: 'Arial Black', Arial, sans-serif; font-size: 1.5rem; font-weight: 900; letter-spacing: -1px; margin-bottom: 5px; text-transform: uppercase; }
     
     @media print {
-        @page { margin: 0; size: 80mm auto; } /* Khổ giấy in nhiệt 80mm */
+        @page { margin: 0; size: 80mm auto; }
         body * { visibility: hidden; }
-        
-        /* Ẩn giao diện web, chỉ hiện modal in */
         .modal { position: absolute; left: 0; top: 0; margin: 0; padding: 0; min-height: 550px; visibility: visible; }
         .modal-dialog { margin: 0; padding: 0; max-width: 100%; width: 100%; }
         .modal-content { border: none; box-shadow: none; background: transparent; }
         .modal-backdrop, .modal-body > h4, .modal-body > .text-muted, .modal-body > .text-success, .modal-body > .d-flex.gap-2 { display: none !important; }
-        
         #printableBill, #printableBill * { visibility: visible; color: #000 !important; }
-        #printableBill {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 78mm !important; /* Vừa vặn khổ 80mm */
-            max-width: 78mm !important;
-            padding: 2mm !important;
-            margin: 0 !important;
-            border: none !important;
-            box-shadow: none !important;
-            font-size: 11px !important; /* Font nhỏ lại để vừa giấy */
-        }
+        #printableBill { position: absolute; left: 0; top: 0; width: 78mm !important; max-width: 78mm !important; padding: 2mm !important; margin: 0 !important; border: none !important; box-shadow: none !important; font-size: 11px !important; }
         #printableBill .dashed-line { margin: 8px 0 !important; }
     }
 </style>
@@ -231,9 +193,7 @@ require ROOT_PATH . '/includes/header.php';
                     <div class="flex-grow-1">
                         <div class="d-flex align-items-center gap-2">
                             <span class="fw-bold text-dark">Tiền mặt</span>
-                            <span class="quick-tag bg-success-subtle text-success">[Phổ biến]</span>
                         </div>
-                        <div class="small text-muted">Nhập số tiền khách đưa, hệ thống tính tiền thối</div>
                     </div>
                     <i class="fa-solid fa-chevron-right text-muted opacity-50"></i>
                 </label>
@@ -246,7 +206,6 @@ require ROOT_PATH . '/includes/header.php';
                     <div class="flex-grow-1">
                         <div class="d-flex align-items-center gap-2">
                             <span class="fw-bold text-dark">Thẻ ATM / Visa</span>
-                            <span class="quick-tag bg-primary-subtle text-primary">[Chạm NFC]</span>
                         </div>
                         <div class="small text-muted">Quẹt thẻ hoặc chạm không dây qua máy POS ngân hàng</div>
                     </div>
@@ -261,7 +220,6 @@ require ROOT_PATH . '/includes/header.php';
                     <div class="flex-grow-1">
                         <div class="d-flex align-items-center gap-2">
                             <span class="fw-bold text-dark">VNPay QR / VietQR</span>
-                            <span class="quick-tag bg-info-subtle text-info">[Tức thì 24/7]</span>
                         </div>
                         <div class="small text-muted">Khách quét mã QR để thanh toán qua Mobile Banking</div>
                     </div>
@@ -276,7 +234,6 @@ require ROOT_PATH . '/includes/header.php';
                     <div class="flex-grow-1">
                         <div class="d-flex align-items-center gap-2">
                             <span class="fw-bold text-dark">Ví MoMo</span>
-                            <span class="quick-tag" style="background: #fdf2f8; color: #a50064;">[Quét siêu tốc]</span>
                         </div>
                         <div class="small text-muted">Thanh toán tự động bằng ví điện tử MoMo</div>
                     </div>
@@ -443,7 +400,6 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 </div>
 
-<!-- MODAL THANH TOÁN THÀNH CÔNG VÀ IN BILL CHUYÊN NGHIỆP -->
 <div class="modal fade" id="modalPaymentSuccess" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content" style="border-radius: 20px; border: none; box-shadow: 0 20px 60px rgba(0,0,0,0.15);">
@@ -454,10 +410,7 @@ require ROOT_PATH . '/includes/header.php';
                 <h4 class="fw-bold text-dark mb-1">Giao dịch thành công!</h4>
                 <div class="text-muted small mb-4">Đơn hàng <strong class="text-danger"><?= htmlspecialchars($orderCode) ?></strong> đã được hoàn tất.</div>
 
-                <!-- BILL IN RA (THIẾT KẾ MỚI) -->
                 <div class="receipt-print-box text-start mb-4" id="printableBill">
-                    
-                    <!-- Header -->
                     <div class="text-center">
                         <div class="brand-logo">CIRCLE K</div>
                         <div class="fw-bold">Tiện lợi 24/7</div>
@@ -469,7 +422,6 @@ require ROOT_PATH . '/includes/header.php';
                     
                     <div class="dashed-line"></div>
 
-                    <!-- Thời gian & Mã hóa đơn -->
                     <div class="d-flex justify-content-between mb-1">
                         <span>Ngày: <?= date('d/m/Y H:i', strtotime($order['ngay_tao'])) ?></span>
                         <span>Số: <b><?= htmlspecialchars($orderCode) ?></b></span>
@@ -490,7 +442,6 @@ require ROOT_PATH . '/includes/header.php';
 
                     <div class="dashed-line"></div>
 
-                    <!-- Danh sách món -->
                     <div class="fw-bold d-flex justify-content-between mb-1">
                         <span style="width: 50%">Tên Món</span>
                         <span style="width: 15%" class="text-center">SL</span>
@@ -510,7 +461,6 @@ require ROOT_PATH . '/includes/header.php';
 
                     <div class="dashed-line"></div>
 
-                    <!-- Tính tiền -->
                     <div class="d-flex justify-content-between mb-1">
                         <span>Cộng tiền hàng:</span>
                         <span><?= number_format($subtotal) ?></span>
@@ -533,7 +483,6 @@ require ROOT_PATH . '/includes/header.php';
 
                     <div class="dashed-line"></div>
 
-                    <!-- Hình thức thanh toán -->
                     <div class="d-flex justify-content-between mb-1">
                         <span>Hình thức:</span>
                         <span class="fw-bold text-uppercase" id="txtConfirmedMethod">Tiền mặt</span>
@@ -552,19 +501,15 @@ require ROOT_PATH . '/includes/header.php';
 
                     <div class="dashed-line"></div>
 
-                    <!-- Footer & Mã vạch -->
                     <div class="text-center mt-3">
                         <div class="mb-2">
-                            <!-- Tạo Barcode từ mã hóa đơn tự động -->
                             <img src="https://barcode.tec-it.com/barcode.ashx?data=<?= urlencode(str_replace('#', '', $orderCode)) ?>&code=Code128&dpi=96" alt="Barcode" style="max-width: 90%; height: 45px;">
                         </div>
                         <div class="fw-bold mt-2">CẢM ƠN QUÝ KHÁCH!</div>
                         <div>Hẹn gặp lại</div>
                         <div class="mt-1" style="font-size: 0.75rem; font-style: italic;">(Mật khẩu Wifi: circlek123)</div>
                     </div>
-
                 </div>
-                <!-- KẾT THÚC BILL -->
 
                 <div class="d-flex gap-2">
                     <button type="button" class="btn-ck btn-ck-soft flex-grow-1" onclick="window.print()">
@@ -694,15 +639,11 @@ require ROOT_PATH . '/includes/header.php';
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('customerCash').value = grandTotal;
         calculateChange();
-    });
-</script>
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
+
         document.querySelectorAll('aside a, .sidebar a, nav a, .nav-link').forEach(link => {
             const href = link.getAttribute('href') || '';
             if (href.includes('thanh_toan_don_hang') || href.includes('thanh_toan')) {
                 link.classList.add('active');
-                
                 link.style.setProperty('background', 'linear-gradient(135deg, #ee3124 0%, #ff4b3a 100%)', 'important');
                 link.style.setProperty('color', '#ffffff', 'important');
                 link.style.setProperty('border-radius', '16px', 'important');

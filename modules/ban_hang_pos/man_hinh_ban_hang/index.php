@@ -59,7 +59,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
 
 $sanpham_list = $pdo->query("SELECT sp.*, dm.ten_danh_muc FROM sanpham sp LEFT JOIN danhmuc dm ON sp.danhmuc_id = dm.id WHERE sp.trang_thai = 1 ORDER BY sp.id ASC")->fetchAll();
 $cuahang_list = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
-
 $all_nv = $pdo->query("SELECT id, ho_ten, cuahang_id FROM nhanvien ORDER BY id ASC")->fetchAll();
 
 $mgr_nam   = null;
@@ -72,12 +71,10 @@ foreach ($all_nv as $nv) {
     $name = trim($nv['ho_ten']);
     $lower = mb_strtolower($name, 'UTF-8');
 
-    // 1. Loại bỏ Giám đốc Nguyễn Hoàng Đăng Khoa
     if ($id === 1 || (strpos($lower, 'khoa') !== false && (strpos($lower, 'đăng khoa') !== false || strpos($lower, 'nguyễn hoàng') !== false))) {
         continue;
     }
 
-    // 2. Nhận diện đúng 3 Quản lý
     if ($id === 3 || strpos($lower, 'nguyễn phương nam') !== false || strpos($lower, 'phương nam') !== false) {
         $mgr_nam = ['id' => $nv['id'], 'ho_ten' => 'Nguyễn Phương Nam [Quản lý]'];
         continue;
@@ -91,7 +88,6 @@ foreach ($all_nv as $nv) {
         continue;
     }
 
-    // 3. Nhân viên bán hàng thường
     $ch_id = (int)$nv['cuahang_id'];
     $branch_staff[$ch_id][] = [
         'id' => $nv['id'],
@@ -249,7 +245,6 @@ require ROOT_PATH . '/includes/header.php';
                             <div class="prod-img-box">
                                 <img src="<?=$imgSrc?>" alt="<?=htmlspecialchars($sp['ten_san_pham'])?>" 
                                      onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                                <!-- Đã fix lỗi Syntax Parse Error ở dòng bên dưới -->
                                 <div class="prod-icon-fallback" style="display:none; color:<?=$v['cl']?>; background: color-mix(in srgb, <?=$v['cl']?> 14%, transparent);">
                                     <i class="fa-solid <?=$v['ic']?>"></i>
                                 </div>
@@ -261,7 +256,6 @@ require ROOT_PATH . '/includes/header.php';
 
                             <div class="d-flex align-items-center justify-content-between mt-auto pt-2 border-top border-light">
                                 <span class="num-font fw-bold" style="color: var(--ck-red); font-size: 1.02rem;"><?=number_format($sp['gia_ban'])?> ₫</span>
-                                <span class="sku-tag"><?=$sp['ma_san_pham']?></span>
                             </div>
                         </div>
                     </div>
@@ -780,6 +774,41 @@ require ROOT_PATH . '/includes/header.php';
                 link.classList.remove('active');
                 link.style.background = '';
                 link.style.boxShadow = '';
+            }
+        });
+
+        document.querySelectorAll('aside a, .sidebar a').forEach(link => {
+            if (link.href && link.href.includes('thanh_toan_don_hang')) {
+                link.addEventListener('click', function(e) {
+                    if (cart.length > 0) {
+                        e.preventDefault();
+                        const btn = document.getElementById('btnGoCheckout');
+                        if(btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang chốt đơn...';
+                        
+                        const fd = new FormData();
+                        fd.append('pos_action', 'create_order_pending');
+                        fd.append('cart', JSON.stringify(cart));
+                        fd.append('cuahang_id', document.getElementById('posStoreSelect').value);
+                        fd.append('nhanvien_id', document.getElementById('posStaffSelect').value);
+                        fd.append('khachhang_id', document.getElementById('posCustomerSelect').value);
+                        fd.append('khuyenmai_id', document.getElementById('posPromoSelect').value);
+                        fd.append('tong_tien', calc.s);
+                        fd.append('tien_giam_gia', calc.d);
+                        fd.append('khach_phai_tra', calc.t);
+
+                        fetch(window.location.href, { method: 'POST', body: fd })
+                            .then(r => r.json())
+                            .then(d => {
+                                if (d.success) {
+                                    window.location.replace(link.href.split('?')[0] + '?id=' + d.hoadon_id);
+                                } else {
+                                    window.location.href = link.href;
+                                }
+                            }).catch(() => {
+                                window.location.href = link.href;
+                            });
+                    }
+                });
             }
         });
     });
