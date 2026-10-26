@@ -98,7 +98,7 @@ $sqlOrders = "SELECT hd.*, ch.ten_cua_hang, nv.ho_ten AS ten_nv,
 $orders = $pdo->query($sqlOrders)->fetchAll();
 
 $pageTitle  = 'Lập & Quản lý Hóa đơn';
-$activeMenu = 'lap_hoa_don';
+$activeMenu = 'hoadon';
 
 require ROOT_PATH . '/includes/header.php';
 ?>

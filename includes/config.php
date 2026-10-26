@@ -5,10 +5,11 @@ define('APP_NAME', 'Circle K Vietnam');
 define('ROOT_PATH', str_replace('\\', '/', dirname(__DIR__)));
 
 // BASE_URL tự tính: clone về để thư mục nào (htdocs/xxx hay php -S) cũng chạy
-$__docRoot = rtrim(str_replace('\\', '/', (string)realpath($_SERVER['DOCUMENT_ROOT'] ?? '')), '/');
-define('BASE_URL', ($__docRoot !== '' && strpos(ROOT_PATH, $__docRoot) === 0)
-    ? substr(ROOT_PATH, strlen($__docRoot))
-    : '');
+$__curDir  = str_replace('\\', '/', dirname($_SERVER['SCRIPT_FILENAME']));
+$__relPath = trim(str_ireplace(ROOT_PATH, '', $__curDir), '/'); 
+$__depth   = $__relPath === '' ? 0 : substr_count($__relPath, '/') + 1; 
+$__urlDir  = explode('/', rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'])), '/'));
+define('BASE_URL', $__depth > 0 ? implode('/', array_slice($__urlDir, 0, -$__depth)) : implode('/', $__urlDir));
 
 function asset(string $path): string {
     $file = ROOT_PATH . '/assets/' . $path;

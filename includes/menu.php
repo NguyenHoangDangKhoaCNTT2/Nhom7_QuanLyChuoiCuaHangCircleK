@@ -8,7 +8,7 @@ return [
         ['key' => 'home', 'label' => 'Trang chủ', 'icon' => 'fa-house', 'color' => '#ff4d6d', 'href' => 'index.php'],
     ]],
     ['label' => 'Tài khoản & Nhân sự', 'items' => [
-        ['key' => 'phanquyen', 'label' => 'Đăng nhập & Phân quyền', 'icon' => 'fa-user-shield', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/dang_nhap_phan_quyen/phan-quyen.php'],
+        ['key' => 'phanquyen', 'label' => 'Đăng nhập & Phân quyền', 'icon' => 'fa-user-shield', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/dang_nhap_phan_quyen/phan_quyen.php'],
         ['key' => 'cuahang', 'label' => 'Quản lý Cửa hàng', 'icon' => 'fa-store', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/quan_ly_cua_hang/index.php'],
         ['key' => 'nhanvien', 'label' => 'Quản lý Nhân viên', 'icon' => 'fa-user-clock', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/quan_ly_nhan_vien/index.php'],
         ['key' => 'khachhang', 'label' => 'Quản lý Khách hàng', 'icon' => 'fa-id-card-clip', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/quan_ly_khach_hang/index.php'],
