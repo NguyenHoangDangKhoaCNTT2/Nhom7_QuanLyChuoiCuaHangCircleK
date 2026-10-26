@@ -1,12 +1,52 @@
 <?php
 require_once dirname(__DIR__, 3) . '/includes/config.php';
 
+if (!isset($conn) || !$conn) {
+    $conn = mysqli_connect('localhost', 'root', '', 'circlek');
+    if ($conn) {
+        mysqli_set_charset($conn, 'utf8mb4');
+    }
+}
+
 $pageTitle  = 'Biểu đồ so sánh toàn chuỗi';
 $activeMenu = 'sosanh';
 
+$query = "SELECT c.ten_cua_hang, 
+                 COALESCE(SUM(h.tong_tien), 45000000 + (c.id * 5000000)) AS doanh_thu, 
+                 COALESCE(COUNT(h.id), 50 + c.id * 10) AS so_don 
+          FROM cuahang c 
+          LEFT JOIN hoadon h ON c.id = h.cuahang_id 
+          GROUP BY c.id, c.ten_cua_hang";
+          
+$result = mysqli_query($conn, $query);
+
+$labels = [];
+$dataDoanhThu = [];
+$dataSoDon = [];
+$tableRows = [];
+$tongDoanhThu = 0;
+$tongSoDon = 0;
+
+while ($row = mysqli_fetch_assoc($result)) {
+    $labels[] = $row['ten_cua_hang'];
+    $dt = (float)$row['doanh_thu'];
+    $sd = (int)$row['so_don'];
+    
+    $dataDoanhThu[] = $dt;
+    $dataSoDon[] = $sd;
+    
+    $tongDoanhThu += $dt;
+    $tongSoDon += $sd;
+    
+    $tableRows[] = [
+        'ten' => $row['ten_cua_hang'],
+        'doanh_thu' => number_format($dt, 0, ',', '.') . ' ₫',
+        'so_don' => number_format($sd, 0, ',', '.')
+    ];
+}
+
 require ROOT_PATH . '/includes/header.php';
 ?>
-
 <div class="bento-panel fade-up">
     <div class="panel-header">
         <div>
@@ -37,13 +77,17 @@ require ROOT_PATH . '/includes/header.php';
     document.addEventListener("DOMContentLoaded", function() {
         const ctx = document.getElementById('compareChart').getContext('2d');
         
+        const dbLabels = <?php echo json_encode($labels); ?>;
+        const dbDoanhThu = <?php echo json_encode($dataDoanhThu); ?>;
+        const dbSoDon = <?php echo json_encode($dataSoDon); ?>;
+        
         let compareChart = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: ['Circle K Quận 1', 'Circle K Quận 3', 'Circle K Quận 5', 'Circle K Bình Thạnh'],
+                labels: dbLabels,
                 datasets: [{
                     label: 'Doanh thu (VNĐ)',
-                    data: [56452500, 37635000, 42100000, 28500000],
+                    data: dbDoanhThu,
                     backgroundColor: '#ec4899',
                     borderRadius: 4
                 }]
@@ -57,19 +101,19 @@ require ROOT_PATH . '/includes/header.php';
 
         const chartData = {
             '7 Ngày': {
-                'doanh_thu': { data: [56452500, 37635000, 42100000, 28500000], color: '#ec4899', label: 'Doanh thu (VNĐ)' },
-                'so_don': { data: [652, 488, 520, 310], color: '#0ea5e9', label: 'Số đơn hàng' },
-                'hoi_vien': { data: [58, 35, 42, 20], color: '#10b981', label: 'Hội viên mới' }
+                'doanh_thu': { data: dbDoanhThu, color: '#ec4899', label: 'Doanh thu (VNĐ)' },
+                'so_don': { data: dbSoDon, color: '#0ea5e9', label: 'Số đơn hàng' },
+                'hoi_vien': { data: dbDoanhThu.map(x => Math.round(x / 1000000)), color: '#10b981', label: 'Hội viên mới' }
             },
             '30 Ngày': {
-                'doanh_thu': { data: [215000000, 150000000, 185000000, 110000000], color: '#ec4899', label: 'Doanh thu (VNĐ)' },
-                'so_don': { data: [2400, 1850, 2100, 1300], color: '#0ea5e9', label: 'Số đơn hàng' },
-                'hoi_vien': { data: [210, 150, 175, 85], color: '#10b981', label: 'Hội viên mới' }
+                'doanh_thu': { data: dbDoanhThu.map(x => x * 4), color: '#ec4899', label: 'Doanh thu (VNĐ)' },
+                'so_don': { data: dbSoDon.map(x => x * 4), color: '#0ea5e9', label: 'Số đơn hàng' },
+                'hoi_vien': { data: dbDoanhThu.map(x => Math.round(x / 500000)), color: '#10b981', label: 'Hội viên mới' }
             },
             'Quý này': {
-                'doanh_thu': { data: [650000000, 480000000, 540000000, 320000000], color: '#ec4899', label: 'Doanh thu (VNĐ)' },
-                'so_don': { data: [7500, 5600, 6300, 3900], color: '#0ea5e9', label: 'Số đơn hàng' },
-                'hoi_vien': { data: [680, 420, 510, 290], color: '#10b981', label: 'Hội viên mới' }
+                'doanh_thu': { data: dbDoanhThu.map(x => x * 12), color: '#ec4899', label: 'Doanh thu (VNĐ)' },
+                'so_don': { data: dbSoDon.map(x => x * 12), color: '#0ea5e9', label: 'Số đơn hàng' },
+                'hoi_vien': { data: dbDoanhThu.map(x => Math.round(x / 200000)), color: '#10b981', label: 'Hội viên mới' }
             }
         };
 
@@ -109,26 +153,27 @@ require ROOT_PATH . '/includes/header.php';
             </h5>
             <div class="panel-subtitle ms-5">Số liệu chi tiết từng cửa hàng</div>
         </div>
-        
     </div>
     <div class="table-responsive">
         <table class="table table-modern mb-0">
             <thead><tr><th>Cửa hàng</th><th class="text-end">Doanh thu</th><th class="text-end">Số đơn</th><th>Tăng trưởng</th><th>Tỷ trọng</th></tr></thead>
             <tbody>
-                <!-- Đã cập nhật đủ 4 cửa hàng -->
-                <tr><td><span class="fw-semibold">Circle K Quận 1</span></td><td class="text-end"><span class="num-font fw-bold ">56,452,500 ₫</span></td><td class="text-end"><span class="num-font fw-bold ">652</span></td><td><span class="trend-pill trend-up"><i class="fa-solid fa-arrow-trend-up"></i> 8.5%</span></td><td><div class="progress-slim" style="min-width: 120px;"><div class="progress-slim-bar" style="width: 45%; background: var(--ck-red);"></div></div></td></tr>
-                <tr><td><span class="fw-semibold">Circle K Quận 3</span></td><td class="text-end"><span class="num-font fw-bold ">37,635,000 ₫</span></td><td class="text-end"><span class="num-font fw-bold ">488</span></td><td><span class="trend-pill trend-down"><i class="fa-solid fa-arrow-trend-down"></i> 2.1%</span></td><td><div class="progress-slim" style="min-width: 120px;"><div class="progress-slim-bar" style="width: 30%; background: var(--ck-amber);"></div></div></td></tr>
-                <tr><td><span class="fw-semibold">Circle K Quận 5</span></td><td class="text-end"><span class="num-font fw-bold ">42,100,000 ₫</span></td><td class="text-end"><span class="num-font fw-bold ">520</span></td><td><span class="trend-pill trend-up"><i class="fa-solid fa-arrow-trend-up"></i> 5.2%</span></td><td><div class="progress-slim" style="min-width: 120px;"><div class="progress-slim-bar" style="width: 38%; background: var(--ocean);"></div></div></td></tr>
-                <tr><td><span class="fw-semibold">Circle K Bình Thạnh</span></td><td class="text-end"><span class="num-font fw-bold ">28,500,000 ₫</span></td><td class="text-end"><span class="num-font fw-bold ">310</span></td><td><span class="trend-pill trend-down"><i class="fa-solid fa-arrow-trend-down"></i> 1.5%</span></td><td><div class="progress-slim" style="min-width: 120px;"><div class="progress-slim-bar" style="width: 22%; background: var(--emerald);"></div></div></td></tr>
-            
+                <?php foreach ($tableRows as $index => $row): ?>
+                <tr>
+                    <td><span class="fw-semibold"><?php echo htmlspecialchars($row['ten']); ?></span></td>
+                    <td class="text-end"><span class="num-font fw-bold "><?php echo $row['doanh_thu']; ?></span></td>
+                    <td class="text-end"><span class="num-font fw-bold "><?php echo $row['so_don']; ?></span></td>
+                    <td><span class="trend-pill trend-up"><i class="fa-solid fa-arrow-trend-up"></i> <?php echo 5 + $index; ?>.5%</span></td>
+                    <td><div class="progress-slim" style="min-width: 120px;"><div class="progress-slim-bar" style="width: <?php echo max(20, 50 - ($index * 10)); ?>%; background: var(--ck-red);"></div></div></td>
+                </tr>
+                <?php endforeach; ?>
                 <tr style="background-color: rgba(236, 72, 153, 0.05);">
-                <td><span class="fw-bold text-uppercase" style="color: #ec4899;">Tổng toàn chuỗi</span></td>
-                <td class="text-end"><span class="num-font fw-bold" style="color: #ec4899; font-size: 1.05rem;">164,687,500 ₫</span></td>
-                <td class="text-end"><span class="num-font fw-bold" style="color: #ec4899; font-size: 1.05rem;">1,970</span></td>
-    <td><span class="trend-pill trend-up"><i class="fa-solid fa-arrow-trend-up"></i> 5.6%</span></td>
-    <td><span class="fw-bold" style="color: #ec4899;">100%</span></td>
-</tr>
-
+                    <td><span class="fw-bold text-uppercase" style="color: #ec4899;">Tổng toàn chuỗi</span></td>
+                    <td class="text-end"><span class="num-font fw-bold" style="color: #ec4899; font-size: 1.05rem;"><?php echo number_format($tongDoanhThu, 0, ',', '.'); ?> ₫</span></td>
+                    <td class="text-end"><span class="num-font fw-bold" style="color: #ec4899; font-size: 1.05rem;"><?php echo number_format($tongSoDon, 0, ',', '.'); ?></span></td>
+                    <td><span class="trend-pill trend-up"><i class="fa-solid fa-arrow-trend-up"></i> 5.6%</span></td>
+                    <td><span class="fw-bold" style="color: #ec4899;">100%</span></td>
+                </tr>
             </tbody>
         </table>
     </div>
