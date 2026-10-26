@@ -16,6 +16,54 @@ try {
     die(json_encode(['success' => false, 'message' => $e->getMessage()]));
 }
 
+$posVoucherStoreCodes = [
+    'WELCOME10' => 'CK005',
+    'GIAM5K' => 'CK007',
+    'GIAM10K' => 'CK008',
+    'HAPPY15' => 'CK009',
+    'NHAGIAO20' => 'CK001',
+    'BF15' => 'CK002',
+    'NOEL10' => 'CK003',
+    'DEMO26CK01' => 'CK009',
+    'DEMO26CK02' => 'CK006',
+    'DEMO26CK03' => 'CK007',
+    'DEMO26CK04' => 'CK010',
+    'DEMO26CK05' => 'CK010',
+    'DEMO26CK06' => 'CK002',
+    'DEMO26CK07' => 'CK011',
+    'DEMO26CK08' => 'CK001',
+    'DEMO26CK09' => 'CK010',
+    'DEMO26CK10' => 'CK003',
+    'DEMO26CK11' => 'CK007',
+    'DEMO26CK12' => 'CK003',
+    'DEMO26CK13' => 'CK006',
+    'DEMO26CK14' => 'CK008',
+    'DEMO26CK15' => 'CK012',
+    'DEMO26CK16' => 'CK001',
+    'DEMO26CK17' => 'CK002',
+    'DEMO26CK18' => 'CK005',
+    'DEMO26CK19' => 'CK004',
+    'DEMO26CK20' => 'CK008',
+    'DEMO26CK21' => 'CK011',
+    'DEMO26CK22' => 'CK009',
+    'DEMO26CK23' => 'CK002',
+    'DEMO26CK24' => 'CK001',
+    'DEMO26CK25' => 'CK011',
+    'DEMO26CK26' => 'CK004',
+    'DEMO26CK27' => 'CK006',
+    'DEMO26CK28' => 'CK003',
+    'DEMO26CK29' => 'CK012',
+    'DEMO26CK30' => 'CK004',
+    'DEMO26CK31' => 'CK005',
+];
+
+function resolvePosVoucherStoreId($voucher, $storeCodeIds, $voucherAssignments) {
+    if ($voucher['cuahang_id'] !== null) return (int)$voucher['cuahang_id'];
+    $voucherCode = strtoupper(trim((string)($voucher['ma_voucher'] ?? '')));
+    $branchCode = $voucherAssignments[$voucherCode] ?? '';
+    return $branchCode !== '' ? (int)($storeCodeIds[$branchCode] ?? 0) : 0;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_POST['pos_action'] === 'create_order_pending') {
     header('Content-Type: application/json; charset=utf-8');
     try {
@@ -31,6 +79,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
         if (empty($cart)) { 
             echo json_encode(['success' => false, 'message' => 'Giỏ hàng trống!']); 
             exit; 
+        }
+
+        if ($khuyenmai_id !== null) {
+            $stmtPromo = $pdo->prepare("SELECT id, cuahang_id, ma_voucher FROM khuyenmai WHERE id = ? AND thoi_gian_bat_dau <= ? AND thoi_gian_ket_thuc >= ? AND (so_luong IS NULL OR so_luong > 0) LIMIT 1");
+            $promoNow = date('Y-m-d H:i:s');
+            $stmtPromo->execute([$khuyenmai_id, $promoNow, $promoNow]);
+            $promo = $stmtPromo->fetch();
+            $storeCodeIds = $pdo->query("SELECT ma_cua_hang, id FROM cuahang")->fetchAll(PDO::FETCH_KEY_PAIR);
+            $promoStoreId = $promo ? resolvePosVoucherStoreId($promo, $storeCodeIds, $posVoucherStoreCodes) : -1;
+            if (!$promo || ($promoStoreId !== 0 && $promoStoreId !== $cuahang_id)) {
+                echo json_encode(['success' => false, 'message' => 'Mã khuyến mãi không áp dụng cho cửa hàng này hoặc đã hết hiệu lực.']);
+                exit;
+            }
         }
 
         $pdo->beginTransaction();
@@ -58,7 +119,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
 }
 
 $sanpham_list = $pdo->query("SELECT sp.*, dm.ten_danh_muc FROM sanpham sp LEFT JOIN danhmuc dm ON sp.danhmuc_id = dm.id WHERE sp.trang_thai = 1 ORDER BY sp.id ASC")->fetchAll();
-$cuahang_list = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+$cuahang_list = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+$posStoreCodeIds = array_column($cuahang_list, 'id', 'ma_cua_hang');
+$posStoreNames = array_column($cuahang_list, 'ten_cua_hang', 'id');
 $all_nv = $pdo->query("SELECT id, ho_ten, cuahang_id FROM nhanvien ORDER BY id ASC")->fetchAll();
 
 $mgr_nam   = null;
@@ -117,10 +180,12 @@ foreach ($cuahang_list as $index => $ch) {
 }
 
 $khachhang_list = $pdo->query("SELECT kh.*, ttd.hang_the, ttd.ti_le_giam_gia FROM khachhang kh LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id ORDER BY kh.id ASC")->fetchAll();
-$khuyenmai_active = $pdo->prepare("SELECT * FROM khuyenmai WHERE thoi_gian_bat_dau <= ? AND thoi_gian_ket_thuc >= ? AND (so_luong IS NULL OR so_luong > 0)");
-$now = date('Y-m-d H:i:s'); 
-$khuyenmai_active->execute([$now, $now]); 
-$khuyenmai_list = $khuyenmai_active->fetchAll();
+$khuyenmai_list = $pdo->query("SELECT id, cuahang_id, ten_km, ma_voucher, loai_km, gia_tri, so_luong, thoi_gian_bat_dau, thoi_gian_ket_thuc FROM khuyenmai ORDER BY id ASC")->fetchAll();
+foreach ($khuyenmai_list as &$km) {
+    $km['pos_store_id'] = resolvePosVoucherStoreId($km, $posStoreCodeIds, $posVoucherStoreCodes);
+}
+unset($km);
+$now = date('Y-m-d H:i:s');
 
 $nextId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) + 1 FROM hoadon")->fetchColumn();
 $nextHdCode = '#HD' . (1024 + $nextId);
@@ -195,6 +260,25 @@ require ROOT_PATH . '/includes/header.php';
     .page-nav-btn { background: transparent; border: none; color: #1e3a8a; font-weight: 600; font-size: 0.9rem; padding: 6px 12px; display: flex; align-items: center; gap: 6px; border-radius: 8px; transition: all 0.2s; }
     .page-nav-btn:hover:not(:disabled) { background: #f1f5f9; }
     .page-nav-btn:disabled { color: #94a3b8; cursor: not-allowed; opacity: 0.6; }
+
+    .pos-feedback-dialog { width: min(440px, calc(100vw - 32px)); max-width: 100%; padding: 0; border: 0; border-radius: 22px; color: #1e293b; background: #ffffff; box-shadow: 0 24px 75px rgba(15, 23, 42, 0.23); overflow: visible; }
+    .pos-feedback-dialog[open] { animation: pos-dialog-in .2s ease-out; }
+    .pos-feedback-dialog::backdrop { background: rgba(15, 23, 42, .46); backdrop-filter: blur(3px); }
+    @keyframes pos-dialog-in { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .pos-dialog-inner { position: relative; padding: 30px 30px 26px; text-align: center; }
+    .pos-dialog-close { position: absolute; top: 13px; right: 14px; display: grid; place-items: center; width: 32px; height: 32px; border: 0; background: #f1f5f9; color: #64748b; border-radius: 10px; cursor: pointer; }
+    .pos-dialog-close:hover { background: #e2e8f0; color: #334155; }
+    .pos-dialog-icon { display: grid; place-items: center; width: 60px; height: 60px; margin: 0 auto 18px; border-radius: 18px; background: #fff1f2; color: #e11d48; font-size: 24px; }
+    .pos-dialog-icon.is-info { background: #eff6ff; color: #2563eb; }
+    .pos-dialog-title { margin: 0 0 9px; font-size: 1.24rem; font-weight: 800; color: #172033; }
+    .pos-dialog-message { margin: 0; color: #64748b; font-size: .93rem; line-height: 1.65; overflow-wrap: anywhere; }
+    .pos-dialog-actions { display: flex; justify-content: center; gap: 10px; margin-top: 26px; }
+    .pos-dialog-actions button { flex: 1; min-height: 43px; border-radius: 11px; padding: 9px 14px; font-size: .9rem; font-weight: 750; cursor: pointer; transition: transform .15s, background .15s; }
+    .pos-dialog-actions button:hover { transform: translateY(-1px); }
+    .pos-dialog-secondary { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
+    .pos-dialog-danger { background: linear-gradient(105deg, #e11d48, #fb573d); border: 1px solid transparent; color: white; }
+    .pos-dialog-info { background: #e11d48; border: 1px solid transparent; color: white; }
+    @media (max-width: 480px) { .pos-dialog-inner { padding: 28px 22px 22px; } }
 </style>
 
 <script>
@@ -317,10 +401,22 @@ require ROOT_PATH . '/includes/header.php';
                     <span id="tierBadgeEl" class="tier-badge tier-none">Khách lẻ</span>
                 </div>
 
-                <select class="form-select form-select-sm border-0 text-danger fw-bold shadow-sm" id="posPromoSelect" onchange="calcTotal()" style="height: 36px;">
+                <select class="form-select form-select-sm border-0 text-danger fw-bold shadow-sm" id="posPromoSelect" onchange="onPromoSelectChange()" style="height: 36px;">
                     <option value="" data-val="0" data-type="">-- Áp dụng Voucher / Khuyến mãi --</option>
-                    <?php foreach($khuyenmai_list as $km): ?><option value="<?=$km['id']?>" data-val="<?=(float)$km['gia_tri']?>" data-type="<?=$km['loai_km']?>">[<?=$km['ma_voucher']?>] <?=$km['ten_km']?></option><?php endforeach; ?>
+                    <?php foreach ($khuyenmai_list as $km):
+                        $isUpcoming = $km['thoi_gian_bat_dau'] > $now;
+                        $isExpired = $km['thoi_gian_ket_thuc'] < $now || ($km['so_luong'] !== null && (int)$km['so_luong'] <= 0);
+                        $promoStatus = $isExpired ? ' (Đã hết hạn / hết lượt)' : ($isUpcoming ? ' (Sắp diễn ra)' : '');
+                    ?>
+                    <option value="<?=(int)$km['id']?>" data-code="<?=htmlspecialchars($km['ma_voucher'] ?? '', ENT_QUOTES, 'UTF-8')?>" data-store="<?=(int)$km['pos_store_id']?>" data-store-name="<?=htmlspecialchars($posStoreNames[$km['pos_store_id']] ?? 'Toàn hệ thống', ENT_QUOTES, 'UTF-8')?>" data-status="<?=$isExpired ? 'expired' : ($isUpcoming ? 'upcoming' : 'active')?>" data-val="<?=(float)$km['gia_tri']?>" data-type="<?=htmlspecialchars($km['loai_km'], ENT_QUOTES, 'UTF-8')?>" <?=($isUpcoming || $isExpired) ? 'disabled' : ''?>>[<?=htmlspecialchars($km['ma_voucher'] ?? '', ENT_QUOTES, 'UTF-8')?>] <?=htmlspecialchars($km['ten_km'], ENT_QUOTES, 'UTF-8')?><?=$promoStatus?></option>
+                    <?php endforeach; ?>
                 </select>
+                <div class="input-group input-group-sm mt-2 shadow-sm" style="height: 36px;">
+                    <span class="input-group-text bg-white border-end-0 text-muted"><i class="fa-solid fa-ticket"></i></span>
+                    <input type="text" id="posPromoCodeInput" class="form-control border-start-0" placeholder="Nhập mã voucher để tìm nhanh..." autocomplete="off" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); applyPromoCode(); }" oninput="clearPromoFeedback()">
+                    <button class="btn btn-danger fw-bold px-3" type="button" onclick="applyPromoCode()">Áp dụng</button>
+                </div>
+                <div id="posPromoCodeFeedback" class="small mt-1" role="status" aria-live="polite" style="display:none;"></div>
             </div>
 
             <div id="cartBox" class="flex-grow-1" style="overflow-y: auto; padding-right: 5px;"></div>
@@ -340,8 +436,126 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 </div>
 
+<dialog class="pos-feedback-dialog" id="posFeedbackDialog" aria-labelledby="posDialogTitle" aria-describedby="posDialogMessage">
+    <div class="pos-dialog-inner">
+        <button type="button" class="pos-dialog-close" id="posDialogClose" aria-label="Đóng"><i class="fa-solid fa-xmark"></i></button>
+        <div class="pos-dialog-icon" id="posDialogIcon"><i class="fa-solid fa-trash-can"></i></div>
+        <h4 class="pos-dialog-title" id="posDialogTitle"></h4>
+        <p class="pos-dialog-message" id="posDialogMessage"></p>
+        <div class="pos-dialog-actions">
+            <button type="button" class="pos-dialog-secondary" id="posDialogCancel">Giữ giỏ hàng</button>
+            <button type="button" class="pos-dialog-danger" id="posDialogConfirm">Xóa giỏ hàng</button>
+        </div>
+    </div>
+</dialog>
+
 <script>
     const branchStaffData = <?= json_encode($branch_staff_map, JSON_UNESCAPED_UNICODE) ?>;
+    const allPromoOptions = Array.from(document.querySelectorAll('#posPromoSelect option')).slice(1);
+
+    function updatePromoByBranch() {
+        const select = document.getElementById('posPromoSelect');
+        const branchId = Number(document.getElementById('posStoreSelect').value);
+        const previousPromo = select.value || localStorage.getItem('ck_pos_promo') || '';
+        select.length = 1;
+        allPromoOptions.forEach(option => {
+            const storeId = Number(option.dataset.store || 0);
+            if ((storeId === 0 || storeId === branchId) && option.dataset.status === 'active' && !option.disabled) select.appendChild(option);
+        });
+        const validSelection = Array.from(select.options).find(option => option.value === previousPromo && !option.disabled);
+        select.value = validSelection ? previousPromo : '';
+        localStorage.setItem('ck_pos_promo', select.value);
+        const codeInput = document.getElementById('posPromoCodeInput');
+        codeInput.value = validSelection ? (validSelection.dataset.code || '') : '';
+        clearPromoFeedback();
+        calcTotal();
+    }
+
+
+    function openPosNotice({title, message, mode = 'info', confirmText = 'Đã hiểu', cancelText = '', onConfirm = null}) {
+        const dialog = document.getElementById('posFeedbackDialog');
+        const icon = document.getElementById('posDialogIcon');
+        const confirmBtn = document.getElementById('posDialogConfirm');
+        const cancelBtn = document.getElementById('posDialogCancel');
+        document.getElementById('posDialogTitle').textContent = title;
+        document.getElementById('posDialogMessage').textContent = message;
+        icon.className = 'pos-dialog-icon' + (mode === 'info' ? ' is-info' : '');
+        icon.innerHTML = mode === 'info' ? '<i class="fa-solid fa-store"></i>' : '<i class="fa-solid fa-trash-can"></i>';
+        confirmBtn.className = mode === 'info' ? 'pos-dialog-info' : 'pos-dialog-danger';
+        confirmBtn.textContent = confirmText;
+        cancelBtn.hidden = !cancelText;
+        cancelBtn.textContent = cancelText;
+        document.getElementById('posDialogClose').onclick = () => dialog.close();
+        cancelBtn.onclick = () => dialog.close();
+        confirmBtn.onclick = () => {
+            dialog.close();
+            if (typeof onConfirm === 'function') onConfirm();
+        };
+        if (!dialog.open) dialog.showModal();
+    }
+
+    function showPromoFeedback(message, success) {
+        const el = document.getElementById('posPromoCodeFeedback');
+        el.textContent = message;
+        el.className = 'small mt-1 ' + (success ? 'text-success' : 'text-danger');
+        el.style.display = message ? 'block' : 'none';
+    }
+
+    function clearPromoFeedback() {
+        const el = document.getElementById('posPromoCodeFeedback');
+        el.textContent = '';
+        el.style.display = 'none';
+    }
+
+    function onPromoSelectChange() {
+        const select = document.getElementById('posPromoSelect');
+        document.getElementById('posPromoCodeInput').value = select.selectedIndex > 0 ? (select.options[select.selectedIndex].dataset.code || '') : '';
+        clearPromoFeedback();
+        calcTotal();
+    }
+
+    function applyPromoCode() {
+        const input = document.getElementById('posPromoCodeInput');
+        const code = input.value.trim().toUpperCase();
+        const select = document.getElementById('posPromoSelect');
+        select.value = '';
+        calcTotal();
+        if (!code) {
+            showPromoFeedback('Vui lòng nhập mã voucher.', false);
+            input.focus();
+            return;
+        }
+        const option = allPromoOptions.find(item => (item.dataset.code || '').toUpperCase() === code);
+        if (!option) {
+            showPromoFeedback('Không tìm thấy mã voucher ' + code + '.', false);
+            return;
+        }
+        const branchId = Number(document.getElementById('posStoreSelect').value);
+        const promoStore = Number(option.dataset.store || 0);
+        if (promoStore !== 0 && promoStore !== branchId) {
+            const allowedStore = option.dataset.storeName || 'chi nhánh khác';
+            const currentStore = document.getElementById('posStoreSelect').selectedOptions[0]?.textContent.trim().replace(/^🏪\s*/, '') || 'cửa hàng hiện tại';
+            showPromoFeedback('Mã ' + code + ' không áp dụng tại chi nhánh đang chọn.', false);
+            openPosNotice({
+                title: 'Mã không áp dụng tại đây',
+                message: 'Mã ' + code + ' chỉ áp dụng tại ' + allowedStore + ', không áp dụng tại ' + currentStore + '.',
+                mode: 'info'
+            });
+            return;
+        }
+        if (option.dataset.status === 'upcoming') {
+            showPromoFeedback('Mã ' + code + ' chưa đến thời gian áp dụng.', false);
+            return;
+        }
+        if (option.dataset.status === 'expired' || option.disabled) {
+            showPromoFeedback('Mã ' + code + ' đã hết hạn hoặc hết lượt.', false);
+            return;
+        }
+        select.value = option.value;
+        input.value = code;
+        calcTotal();
+        showPromoFeedback('Đã áp dụng mã ' + code + ' thành công.', true);
+    }
 
     function updateStaffByBranch() {
         const branchSelect = document.getElementById('posStoreSelect');
@@ -359,6 +573,7 @@ require ROOT_PATH . '/includes/header.php';
 
         localStorage.setItem('ck_pos_store', currentBranchId);
         localStorage.setItem('ck_pos_staff', staffSelect.value);
+        updatePromoByBranch();
     }
 
     const itemsPerPage = 16; 
@@ -672,19 +887,26 @@ require ROOT_PATH . '/includes/header.php';
     }
 
     function clearCartConfirm() {
-        if(confirm('Bạn có chắc muốn hủy đơn hàng và xóa toàn bộ sản phẩm trong giỏ?')) {
-            cart = [];
-            document.getElementById('posCustomerInput').value = '';
-            document.getElementById('posCustomerSelect').selectedIndex = 0;
-            updateTierBadge('none');
-            document.getElementById('posPromoSelect').selectedIndex = 0;
-            
-            localStorage.removeItem('ck_pos_cart');
-            localStorage.removeItem('ck_pos_cus');
-            localStorage.removeItem('ck_pos_promo');
-            
-            drawCart();
-        }
+        openPosNotice({
+            title: 'Xóa giỏ hàng hiện tại?',
+            message: 'Toàn bộ sản phẩm và khuyến mãi đã chọn sẽ được xóa khỏi giỏ hàng.',
+            mode: 'danger',
+            confirmText: 'Xóa giỏ hàng',
+            cancelText: 'Giữ giỏ hàng',
+            onConfirm: () => {
+                cart = [];
+                document.getElementById('posCustomerInput').value = '';
+                document.getElementById('posCustomerSelect').selectedIndex = 0;
+                updateTierBadge('none');
+                document.getElementById('posPromoSelect').selectedIndex = 0;
+                document.getElementById('posPromoCodeInput').value = '';
+                clearPromoFeedback();
+                localStorage.removeItem('ck_pos_cart');
+                localStorage.removeItem('ck_pos_cus');
+                localStorage.removeItem('ck_pos_promo');
+                drawCart();
+            }
+        });
     }
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -722,7 +944,10 @@ require ROOT_PATH . '/includes/header.php';
             handleCustomerSelect();
         }
         if(savedPromo) {
-            document.getElementById('posPromoSelect').value = savedPromo;
+            const select = document.getElementById('posPromoSelect');
+            const option = Array.from(select.options).find(opt => opt.value === savedPromo && !opt.disabled);
+            select.value = option ? savedPromo : '';
+            document.getElementById('posPromoCodeInput').value = option ? (option.dataset.code || '') : '';
         }
         drawCart();
         triggerSearch('', false);
