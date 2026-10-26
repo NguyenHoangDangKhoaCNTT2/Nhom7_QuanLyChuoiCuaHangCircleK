@@ -412,7 +412,6 @@ require ROOT_PATH . '/includes/header.php';
     <?php endif; ?>
 </div>
 
-<!-- Modal xem ảnh lớn -->
 <div class="modal fade" id="modalViewImage" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content" style="background: transparent; border: none; box-shadow: none;">
@@ -656,7 +655,6 @@ function removeRow(btn) {
 }
 
 
-// Xử lý xem ảnh lớn
 function viewLargeImage(url, title) {
     document.getElementById('largeImagePreview').src = url;
     document.getElementById('largeImageTitle').innerText = title;

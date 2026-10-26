@@ -587,7 +587,7 @@ function confirmDelete(id, name) {
     }
 }
 
-// Xử lý xem ảnh lớn
+
 function viewLargeImage(url, title) {
     document.getElementById('largeImagePreview').src = url;
     document.getElementById('largeImageTitle').innerText = title;
@@ -595,7 +595,7 @@ function viewLargeImage(url, title) {
     modal.show();
 }
 
-// Xóa bộ nhớ đệm
+
 if (window.history.replaceState) {
     window.history.replaceState(null, null, window.location.href);
 }

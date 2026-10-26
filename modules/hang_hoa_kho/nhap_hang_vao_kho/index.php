@@ -325,7 +325,6 @@ require ROOT_PATH . '/includes/header.php';
     </form>
 </div>
 
-<!-- Phần hiển thị Lịch sử nhập kho -->
 <div class="bento-panel fade-up d-1 mt-4">
     <div class="panel-header mb-3">
         <div>
@@ -419,7 +418,6 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
 
-<!-- Modal xem ảnh lớn -->
 <div class="modal fade" id="modalViewImage" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content" style="background: transparent; border: none; box-shadow: none;">
@@ -432,7 +430,6 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 </div>
 
-<!-- Modal Xem chi tiết Phiếu Nhập -->
 <div class="modal fade" id="modalPnDetail" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
@@ -677,13 +674,10 @@ function loadNhanVienKho(cuahangId) {
 }
 
 
-// Xử lý xem ảnh lớn
 function viewLargeImage(url, title) {
     document.getElementById('largeImagePreview').src = url;
     document.getElementById('largeImageTitle').innerText = title;
     
-    // Nếu modal chi tiết phiếu đang mở thì phải đóng lại hoặc dùng modal con
-    // Ở đây dùng Bootstrap modal độc lập vẫn ok
     const modal = new bootstrap.Modal(document.getElementById('modalViewImage'));
     modal.show();
 }
