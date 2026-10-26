@@ -347,7 +347,7 @@ require ROOT_PATH . '/includes/header.php';
                     <th class="text-nowrap">NHÂN VIÊN NHẬP</th>
                     <th class="text-end text-nowrap">Tổng tiền</th>
                     <th class="text-center text-nowrap">Trạng thái</th>
-                    <th class="text-end text-nowrap">Thao tác</th>
+                    <th class="text-end text-nowrap">XEM CHI TIẾT</th>
                 </tr>
             </thead>
             <tbody>

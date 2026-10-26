@@ -73,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $old_image    = trim($_POST['old_image'] ?? '');
 
             if ($ma_san_pham === '' || $ten_san_pham === '' || $danhmuc_id <= 0) {
-                throw new Exception('Vui lòng nhập đầy đủ Mã SKU, Tên sản phẩm và Danh mục!');
+                throw new Exception('Vui lòng nhập đầy đủ Mã sản phẩm, Tên sản phẩm và Danh mục!');
             }
 
             $stmtCheck = $pdo->prepare("SELECT id FROM sanpham WHERE ma_san_pham = ? AND id != ?");
@@ -360,7 +360,7 @@ require ROOT_PATH . '/includes/header.php';
                                 <?php endif; ?>
                                 <div>
                                     <span class="fw-bold text-dark fs-6 d-block mb-1"><?= htmlspecialchars($sp['ten_san_pham']) ?></span>
-                                    <span class="small text-muted">SKU: <?= htmlspecialchars($sp['ma_san_pham']) ?></span>
+                                    <span class="small text-muted">MSP: <?= htmlspecialchars($sp['ma_san_pham']) ?></span>
                                 </div>
                             </div>
                         </td>
