@@ -191,6 +191,25 @@ require ROOT_PATH . '/includes/header.php';
     .insight-sub-action { padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff; font-weight: 750; color: #475569; font-size: 12px; }
     .insight-sub-action:hover { background: #f1f5f9; }
     @media (max-width: 767px) { .promo-insight-banner { padding: 20px 18px; } .promo-insight-title { font-size: 19px; } .promo-insight-body { padding: 16px; } .insight-stat-grid { gap: 7px; } .insight-stat { padding: 10px; } .insight-stat .number { font-size: 22px; } .insight-stat .name { font-size: 10px; } .insight-row-button .insight-name { max-width: 175px; } }
+
+    .ck-confirm-dialog { width: min(430px, calc(100vw - 30px)); max-width: 100%; margin: auto; padding: 0; border: 0; border-radius: 20px; background: #fff; color: #1e293b; box-shadow: 0 24px 75px rgba(15,23,42,.23); overflow: visible; }
+    .ck-confirm-dialog[open] { animation: ck-confirm-show .2s ease-out; }
+    .ck-confirm-dialog::backdrop { background: rgba(15,23,42,.48); backdrop-filter: blur(3px); }
+    @keyframes ck-confirm-show { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .ck-confirm-content { position: relative; padding: 30px 28px 25px; text-align: center; }
+    .ck-confirm-close { position: absolute; right: 13px; top: 12px; width: 32px; height: 32px; display: grid; place-items: center; border: 0; background: #f1f5f9; border-radius: 10px; color: #64748b; cursor: pointer; }
+    .ck-confirm-close:hover { background: #e2e8f0; color: #334155; }
+    .ck-confirm-symbol { width: 60px; height: 60px; margin: 0 auto 17px; border-radius: 18px; display: grid; place-items: center; background: #fff1f2; color: #e11d48; font-size: 24px; }
+    .ck-confirm-heading { margin: 0 0 9px; font-size: 1.2rem; font-weight: 800; color: #172033; }
+    .ck-confirm-message { margin: 0; color: #64748b; font-size: .91rem; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+    .ck-confirm-buttons { display: flex; gap: 10px; margin-top: 25px; }
+    .ck-confirm-buttons button { flex: 1; min-height: 43px; padding: 9px 12px; border-radius: 11px; font-size: .88rem; font-weight: 750; cursor: pointer; transition: background .15s, transform .15s; }
+    .ck-confirm-buttons button:hover { transform: translateY(-1px); }
+    .ck-confirm-keep { border: 1px solid #e2e8f0; color: #334155; background: #f1f5f9; }
+    .ck-confirm-remove { border: 1px solid transparent; color: white; background: linear-gradient(105deg,#e11d48,#fb573d); }
+    .ck-confirm-remove:hover { filter: brightness(.97); }
+    @media (max-width: 480px) { .ck-confirm-content { padding: 28px 19px 21px; } }
+
 </style>
 
 <script>document.querySelector('body').classList.add('layout-fixed');</script>
@@ -464,7 +483,36 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 </div>
 
+
+<dialog class="ck-confirm-dialog" id="ckConfirmDialog" aria-labelledby="ckConfirmTitle" aria-describedby="ckConfirmMessage">
+    <div class="ck-confirm-content">
+        <button type="button" class="ck-confirm-close" id="ckConfirmClose" aria-label="Đóng"><i class="fa-solid fa-xmark"></i></button>
+        <div class="ck-confirm-symbol"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <h4 class="ck-confirm-heading" id="ckConfirmTitle"></h4>
+        <p class="ck-confirm-message" id="ckConfirmMessage"></p>
+        <div class="ck-confirm-buttons">
+            <button type="button" class="ck-confirm-keep" id="ckConfirmKeep">Giữ lại</button>
+            <button type="button" class="ck-confirm-remove" id="ckConfirmRemove">Xác nhận</button>
+        </div>
+    </div>
+</dialog>
+
 <script>
+
+    function openCkConfirm(title, message, confirmLabel, onConfirm) {
+        const dialog = document.getElementById('ckConfirmDialog');
+        document.getElementById('ckConfirmTitle').textContent = title;
+        document.getElementById('ckConfirmMessage').textContent = message;
+        const confirmButton = document.getElementById('ckConfirmRemove');
+        confirmButton.textContent = confirmLabel;
+        document.getElementById('ckConfirmKeep').onclick = () => dialog.close();
+        document.getElementById('ckConfirmClose').onclick = () => dialog.close();
+        confirmButton.onclick = () => {
+            dialog.close();
+            onConfirm();
+        };
+        if (!dialog.open) dialog.showModal();
+    }
 
     const promoInsightData = <?= json_encode(array_map(static function ($p) {
         return [
@@ -718,18 +766,24 @@ require ROOT_PATH . '/includes/header.php';
     }
 
     function deletePromo(id, code) {
-        if (!confirm('Bạn có chắc muốn xóa mã voucher [' + code + '] không?')) return;
-        const fd = new FormData();
-        fd.append('action', 'delete_promo');
-        fd.append('id', id);
+        openCkConfirm(
+            'Xóa mã voucher ' + code + '?',
+            'Mã khuyến mãi này sẽ bị xóa khỏi hệ thống. Thao tác này không thể hoàn tác.',
+            'Xóa voucher',
+            () => {
+                const fd = new FormData();
+                fd.append('action', 'delete_promo');
+                fd.append('id', id);
 
-        fetch(window.location.href, { method: 'POST', body: fd })
-            .then(r => r.json())
-            .then(d => {
-                if (d.success) location.reload();
-                else alert('Lỗi xóa: ' + d.message);
-            })
-            .catch(err => alert('Lỗi kết nối: ' + err));
+                fetch(window.location.href, { method: 'POST', body: fd })
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d.success) location.reload();
+                        else alert('Lỗi xóa: ' + d.message);
+                    })
+                    .catch(err => alert('Lỗi kết nối: ' + err));
+            }
+        );
     }
 
     document.addEventListener('DOMContentLoaded', function() {
