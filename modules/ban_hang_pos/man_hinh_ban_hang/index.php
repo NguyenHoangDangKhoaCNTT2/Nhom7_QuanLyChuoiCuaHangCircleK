@@ -460,7 +460,7 @@ require ROOT_PATH . '/includes/header.php';
         select.length = 1;
         allPromoOptions.forEach(option => {
             const storeId = Number(option.dataset.store || 0);
-            if (storeId === 0 || storeId === branchId) select.appendChild(option);
+            if ((storeId === 0 || storeId === branchId) && option.dataset.status === 'active' && !option.disabled) select.appendChild(option);
         });
         const validSelection = Array.from(select.options).find(option => option.value === previousPromo && !option.disabled);
         select.value = validSelection ? previousPromo : '';
