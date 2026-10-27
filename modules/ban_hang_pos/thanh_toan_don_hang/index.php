@@ -143,6 +143,12 @@ require ROOT_PATH . '/includes/header.php';
     .quick-tag { font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 99px; letter-spacing: 0.3px; }
     .quick-cash-chip { border: 1px solid var(--border-light); background: #fff; border-radius: 10px; padding: 8px 16px; font-size: 0.88rem; font-weight: 700; color: #334155; cursor: pointer; transition: all 0.15s; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
     .quick-cash-chip:hover { background: #f1f5f9; border-color: #cbd5e1; transform: translateY(-1px); }
+    .cash-mode-switch { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; }
+    .cash-mode-switch .form-check-input { width: 2.35em; height: 1.2em; margin: 0; cursor: pointer; }
+    .cash-mode-switch .form-check-input:checked { background-color: #ee3124; border-color: #ee3124; }
+    .cash-mode-switch .form-check-label { cursor: pointer; font-weight: 700; font-size: .88rem; color: #334155; }
+    .cash-real-amount { color: #047857; font-size: .82rem; font-weight: 700; margin-top: 8px; }
+
     
     .vietqr-card { background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 20px; padding: 24px; max-width: 380px; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.06); }
     .qr-frame { position: relative; width: 220px; height: 220px; margin: 0 auto 16px; padding: 10px; background: #fff; border-radius: 16px; border: 2px solid #e2e8f0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
@@ -242,10 +248,15 @@ require ROOT_PATH . '/includes/header.php';
             </div>
 
             <div id="cashInputBlock" class="p-3 bg-light rounded-4 border">
+                <div class="cash-mode-switch mb-3">
+                    <input class="form-check-input" type="checkbox" role="switch" id="cashThousandMode" onchange="switchCashUnit()">
+                    <label class="form-check-label" for="cashThousandMode">Nhập theo nghìn đồng (× 1.000)</label>
+                </div>
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
-                        <label class="form-label small fw-bold text-muted">TIỀN KHÁCH ĐƯA (VNĐ)</label>
-                        <input type="number" class="form-control form-control-lg num-font fw-bold" id="customerCash" placeholder="0" oninput="calculateChange()">
+                        <label class="form-label small fw-bold text-muted" id="lblCustomerCash">TIỀN KHÁCH ĐƯA (VNĐ)</label>
+                        <input type="number" min="0" step="1" inputmode="decimal" class="form-control form-control-lg num-font fw-bold" id="customerCash" placeholder="0" oninput="calculateChange()">
+                        <div class="cash-real-amount" aria-live="polite">Số tiền thực: <span id="cashActualAmount">0 ₫</span></div>
                     </div>
                     <div class="col-12 col-md-6">
                         <label class="form-label small fw-bold text-muted" id="lblChangeTitle">TIỀN THỐI LẠI (VNĐ)</label>
@@ -562,9 +573,29 @@ require ROOT_PATH . '/includes/header.php';
         }
     }
 
+    function readCashVND(thousandMode = document.getElementById('cashThousandMode').checked) {
+        const value = document.getElementById('customerCash').value;
+        if (value === '') return 0;
+        const amount = Number(value);
+        if (!Number.isFinite(amount) || amount < 0) return 0;
+        return Math.round(amount * (thousandMode ? 1000 : 1));
+    }
+
+    function switchCashUnit() {
+        const thousandMode = document.getElementById('cashThousandMode').checked;
+        const amountInVND = readCashVND(!thousandMode);
+        const input = document.getElementById('customerCash');
+        input.value = thousandMode ? String(Number((amountInVND / 1000).toFixed(3))) : String(amountInVND);
+        input.step = thousandMode ? '0.001' : '1';
+        input.placeholder = thousandMode ? 'VD: 15 = 15.000 ₫' : '0';
+        document.getElementById('lblCustomerCash').textContent = thousandMode ? 'TIỀN KHÁCH ĐƯA (NGHÌN ĐỒNG)' : 'TIỀN KHÁCH ĐƯA (VNĐ)';
+        calculateChange();
+    }
+
     function calculateChange() {
         if (selectedMethod !== 'Tiền mặt') return;
-        const cashVal = parseFloat(document.getElementById('customerCash').value) || 0;
+        const cashVal = readCashVND();
+        document.getElementById('cashActualAmount').textContent = fVND(cashVal);
         const diff = cashVal - grandTotal;
         const lblTitle = document.getElementById('lblChangeTitle');
         const inpChange = document.getElementById('customerChange');
@@ -586,17 +617,21 @@ require ROOT_PATH . '/includes/header.php';
     }
 
     function setCash(val) {
-        document.getElementById('customerCash').value = val;
+        document.getElementById('customerCash').value = document.getElementById('cashThousandMode').checked ? String(val / 1000) : String(val);
         calculateChange();
     }
 
     function submitPayment() {
+        const givenCash = (selectedMethod === 'Tiền mặt') ? readCashVND() : grandTotal;
+        if (selectedMethod === 'Tiền mặt' && givenCash < grandTotal) {
+            calculateChange();
+            document.getElementById('customerCash').focus();
+            return;
+        }
+        const changeCash = (selectedMethod === 'Tiền mặt') ? Math.max(0, givenCash - grandTotal) : 0;
         const btn = document.getElementById('btnConfirmPay');
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang ghi nhận...';
-
-        const givenCash = (selectedMethod === 'Tiền mặt') ? (parseFloat(document.getElementById('customerCash').value) || grandTotal) : grandTotal;
-        const changeCash = (selectedMethod === 'Tiền mặt') ? Math.max(0, givenCash - grandTotal) : 0;
 
         const fd = new FormData();
         fd.append('action', 'confirm_payment');
