@@ -493,7 +493,7 @@ require ROOT_PATH . '/includes/header.php';
                         <input type="number" class="form-control" name="gia_nhap" id="spGiaNhap" min="0" step="100" required>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label fw-semibold" for="spGia">Giá bán (₫) </label>
+                        <label class="form-label fw-semibold" for="spGia">Giá bán (VND) </label>
                         <input type="number" class="form-control" name="gia_ban" id="spGia" min="0" step="100" required>
                     </div>
                     <div class="col-md-12">
