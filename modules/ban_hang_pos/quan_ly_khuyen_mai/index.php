@@ -112,7 +112,7 @@ foreach ($promos as &$p) {
 unset($p);
 
 $pageTitle  = 'Quản lý Khuyến mãi & Voucher';
-$activeMenu = 'khuyen_mai';
+$activeMenu = 'khuyenmai';
 
 require ROOT_PATH . '/includes/header.php';
 ?>

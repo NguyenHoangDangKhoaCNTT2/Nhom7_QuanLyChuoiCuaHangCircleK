@@ -1,33 +1,26 @@
 <?php
-// Thêm chức năng mới: thêm 1 dòng vào nhóm của mình rồi tạo trang trong thư mục chức năng.
-//   key   = trùng $activeMenu của trang      icon = tên icon FontAwesome
-//   color = màu icon trên nền tối (lấy trong STYLE_GUIDE)      badge = chữ nhỏ bên phải (hoặc bỏ)
-// Merge bị conflict ở file này -> giữ CẢ HAI dòng.
-return [
-    ['label' => 'Điều hành chuỗi', 'items' => [
-        ['key' => 'home', 'label' => 'Trang chủ', 'icon' => 'fa-house', 'color' => '#ff4d6d', 'href' => 'index.php'],
-    ]],
-    ['label' => 'Tài khoản & Nhân sự', 'items' => [
-        ['key' => 'phanquyen', 'label' => 'Đăng nhập & Phân quyền', 'icon' => 'fa-user-shield', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/dang_nhap_phan_quyen/phan-quyen.php'],
-        ['key' => 'cuahang', 'label' => 'Quản lý Cửa hàng', 'icon' => 'fa-store', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/quan_ly_cua_hang/index.php'],
-        ['key' => 'nhanvien', 'label' => 'Quản lý Nhân viên', 'icon' => 'fa-user-clock', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/quan_ly_nhan_vien/index.php'],
-        ['key' => 'khachhang', 'label' => 'Quản lý Khách hàng', 'icon' => 'fa-id-card-clip', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/quan_ly_khach_hang/index.php'],
-    ]],
-    ['label' => 'Hàng hóa & Kho', 'items' => [
-        ['key' => 'sanpham', 'label' => 'Quản lý Sản phẩm', 'icon' => 'fa-boxes-stacked', 'color' => '#fbbf24', 'href' => 'modules/hang_hoa_kho/quan_ly_san_pham/index.php'],
-        ['key' => 'nhapkho', 'label' => 'Nhập hàng vào kho', 'icon' => 'fa-dolly', 'color' => '#fbbf24', 'href' => 'modules/hang_hoa_kho/nhap_hang_vao_kho/index.php'],
-        ['key' => 'dieuchuyen', 'label' => 'Điều chuyển kho', 'icon' => 'fa-right-left', 'color' => '#fbbf24', 'href' => 'modules/hang_hoa_kho/dieu_chuyen_kho/index.php'],
-    ]],
-    ['label' => 'Bán hàng (POS)', 'items' => [
-        ['key' => 'pos', 'label' => 'Màn hình bán hàng (POS)', 'icon' => 'fa-cash-register', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/man_hinh_ban_hang/index.php'],
-        ['key' => 'hoadon', 'label' => 'Lập hóa đơn', 'icon' => 'fa-file-invoice-dollar', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/lap_hoa_don/index.php'],
-        ['key' => 'khuyenmai', 'label' => 'Quản lý Khuyến mãi', 'icon' => 'fa-ticket', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/quan_ly_khuyen_mai/index.php'],
-        ['key' => 'thanhtoan', 'label' => 'Thanh toán đơn hàng', 'icon' => 'fa-credit-card', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/thanh_toan_don_hang/index.php'],
-    ]],
-    ['label' => 'Thống kê & Báo cáo', 'items' => [
-        ['key' => 'dashboard', 'label' => 'Dashboard thống kê cửa hàng', 'icon' => 'fa-chart-pie', 'color' => '#a78bfa', 'href' => 'modules/thong_ke_bao_cao/dashboard_cua_hang/index.php'],
-        ['key' => 'sosanh', 'label' => 'Biểu đồ so sánh toàn chuỗi', 'icon' => 'fa-chart-column', 'color' => '#a78bfa', 'href' => 'modules/thong_ke_bao_cao/bieu_do_so_sanh_chuoi/index.php'],
-        ['key' => 'banchay', 'label' => 'Thống kê sản phẩm bán chạy', 'icon' => 'fa-ranking-star', 'color' => '#a78bfa', 'href' => 'modules/thong_ke_bao_cao/thong_ke_san_pham_ban_chay/index.php'],
-        ['key' => 'locbaocao', 'label' => 'Lọc báo cáo theo thời gian', 'icon' => 'fa-calendar-days', 'color' => '#a78bfa', 'href' => 'modules/thong_ke_bao_cao/loc_bao_cao_theo_thoi_gian/index.php'],
-    ]],
-];
+$vaiTro = $_SESSION['vai_tro'] ?? null; 
+
+$full = require __DIR__ . '/chucnang.php';
+array_unshift($full, ['label' => 'Điều hành chuỗi', 'items' => [
+    ['key' => 'home', 'label' => 'Trang chủ', 'icon' => 'fa-house', 'color' => '#ff4d6d', 'href' => 'index.php'],
+]]);
+
+// chưa đăng nhập -> chỉ Trang chủ + 2 trang xem công khai
+if ($vaiTro === null) {
+    return [
+        ['items' => [
+            ['key' => 'home', 'label' => 'Trang chủ', 'icon' => 'fa-house', 'color' => '#ff4d6d', 'href' => 'index.php'],
+            ['key' => 'sanpham_xem', 'label' => 'Sản phẩm', 'icon' => 'fa-boxes-stacked', 'color' => '#fbbf24', 'href' => 'san_pham.php'],
+            ['key' => 'khuyenmai_xem', 'label' => 'Khuyến mãi', 'icon' => 'fa-ticket', 'color' => '#38bdf8', 'href' => 'khuyen_mai.php'],
+        ]],
+    ];
+}
+
+// Giám Đốc -> xem full chức năng
+if ($vaiTro === 'full') return $full;
+
+// vai trò khác -> chỉ xem trang quản lý + Trang chủ
+return array_values(array_filter($full, function ($g) use ($vaiTro) {
+    return !isset($g['nhom']) || in_array($g['nhom'], $vaiTro, true);
+}));
