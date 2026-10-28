@@ -349,11 +349,11 @@ require ROOT_PATH . '/includes/header.php';
 
             <div class="pagination-wrapper" id="paginationBar">
                 <button type="button" class="page-nav-btn" id="btnPrevPage" onclick="changePage(-1)">
-                    <i class="fa-solid fa-chevron-left" style="font-size: 0.75rem;"></i> Prev
+                    <i class="fa-solid fa-chevron-left" style="font-size: 0.75rem;"></i> Trước
                 </button>
                 <div id="pageNumbers"></div>
                 <button type="button" class="page-nav-btn" id="btnNextPage" onclick="changePage(1)">
-                    Next <i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i>
+                    Sau <i class="fa-solid fa-chevron-right" style="font-size: 0.75rem;"></i>
                 </button>
             </div>
         </div>
