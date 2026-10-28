@@ -236,7 +236,7 @@ require ROOT_PATH . '/includes/header.php';
                         <span class="title-icon" style="background: linear-gradient(135deg, var(--ocean), #6366f1)"><i class="fa-solid fa-chart-line"></i></span>
                         Xu hướng số lượng bán
                     </h5>
-                    <div class="panel-subtitle ms-5"><?php echo e($selectedCategoryName); ?> · <?php echo e($range['start']); ?> đến <?php echo e($range['end']); ?></div>
+                    <div class="panel-subtitle ms-5"><?php echo e($selectedCategoryName); ?> · <?php echo e((new DateTimeImmutable($range['start']))->format('d-m-Y')); ?> đến <?php echo e((new DateTimeImmutable($range['end']))->format('d-m-Y')); ?></div>
                 </div>
             </div>
             <div style="height: 300px; position: relative;">

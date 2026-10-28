@@ -131,30 +131,6 @@ if ($reportType === 'revenue') {
     $stmt->execute($params);
     $rows = $stmt->fetchAll();
 
-    $dataIssueSql = "
-        SELECT COUNT(*)
-        FROM hoadon h
-        LEFT JOIN (
-            SELECT hoadon_id, SUM(thanh_tien) AS gia_tri_hang
-            FROM chitiethoadon
-            GROUP BY hoadon_id
-        ) items ON items.hoadon_id = h.id
-        LEFT JOIN (
-            SELECT hoadon_id, SUM(so_tien_thanh_toan) AS da_thu
-            FROM thanhtoan
-            GROUP BY hoadon_id
-        ) payments ON payments.hoadon_id = h.id
-        WHERE h.trang_thai IN ('Hoàn thành', 'Đã thanh toán')
-          AND h.ngay_tao >= ?
-          AND h.ngay_tao < ?{$storeCondition}
-          AND (
-              h.tong_tien <> COALESCE(items.gia_tri_hang, 0)
-              OR h.khach_phai_tra <> COALESCE(payments.da_thu, 0)
-          )
-    ";
-    $dataIssueStmt = $pdo->prepare($dataIssueSql);
-    $dataIssueStmt->execute($params);
-    $inconsistentInvoices = (int)$dataIssueStmt->fetchColumn();
 } elseif ($reportType === 'products') {
     $columns = ['Sản phẩm', 'Danh mục', 'Số lượng bán', 'Giá trị hàng trước giảm giá'];
     $sql = "
@@ -267,13 +243,6 @@ require ROOT_PATH . '/includes/header.php';
     </form>
     <?php if ($range['error']): ?>
         <div class="alert alert-warning mt-3 mb-0"><?php echo e($range['error']); ?> Đang hiển thị 7 ngày gần nhất.</div>
-    <?php endif; ?>
-    <?php if ($reportType === 'revenue' && $inconsistentInvoices > 0): ?>
-        <div class="alert alert-warning mt-3 mb-0">
-            <strong>Dữ liệu hóa đơn chưa khớp:</strong>
-            <?php echo number_format($inconsistentInvoices, 0, ',', '.'); ?> hóa đơn trong bộ lọc có tổng tiền khác chi tiết hàng hoặc số phải trả khác tổng thanh toán.
-            Các cột được lấy riêng từ <code>hoadon</code>, <code>chitiethoadon</code> và <code>thanhtoan</code>.
-        </div>
     <?php endif; ?>
     <?php if ($reportType === 'inventory'): ?>
         <div class="text-muted small mt-3">Tồn kho là ảnh chụp số lượng hiện tại; bộ lọc thời gian không áp dụng cho báo cáo này.</div>

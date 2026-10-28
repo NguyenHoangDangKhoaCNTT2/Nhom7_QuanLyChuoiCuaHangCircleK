@@ -160,9 +160,6 @@ require ROOT_PATH . '/includes/header.php';
     <?php if ($range['error']): ?>
         <div class="alert alert-warning"><?php echo e($range['error']); ?> Đang hiển thị 7 ngày gần nhất.</div>
     <?php endif; ?>
-    <div class="alert alert-info">
-        Doanh thu tính theo <code>hoadon.khach_phai_tra</code>. Giá trị hàng hóa trước giảm giá được lấy riêng từ chi tiết hóa đơn.
-    </div>
     <form method="get" class="row g-3 align-items-end mb-4">
         <div class="col-md-3">
             <label class="form-label" for="period">Khoảng thời gian</label>

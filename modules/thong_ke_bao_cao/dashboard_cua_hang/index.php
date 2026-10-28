@@ -110,27 +110,6 @@ for (; $day <= $lastDay; $day = $day->modify('+1 day')) {
     $chartRevenue[] = $revenueByDate[$date] ?? 0;
 }
 
-$dataIssueStmt = $pdo->query("
-    SELECT COUNT(*)
-    FROM hoadon h
-    LEFT JOIN (
-        SELECT hoadon_id, SUM(thanh_tien) AS chi_tiet
-        FROM chitiethoadon
-        GROUP BY hoadon_id
-    ) items ON items.hoadon_id = h.id
-    LEFT JOIN (
-        SELECT hoadon_id, SUM(so_tien_thanh_toan) AS da_thu
-        FROM thanhtoan
-        GROUP BY hoadon_id
-    ) payments ON payments.hoadon_id = h.id
-    WHERE h.trang_thai IN ('Hoàn thành', 'Đã thanh toán')
-      AND (
-          h.tong_tien <> COALESCE(items.chi_tiet, 0)
-          OR h.khach_phai_tra <> COALESCE(payments.da_thu, 0)
-      )
-");
-$inconsistentInvoices = (int)$dataIssueStmt->fetchColumn();
-
 $categoryStmt = $pdo->prepare("
     SELECT dm.ten_danh_muc, SUM(ct.thanh_tien) AS doanh_thu
     FROM hoadon h
@@ -220,14 +199,6 @@ require ROOT_PATH . '/includes/header.php';
         </div>
     </div>
 </div>
-
-<?php if ($inconsistentInvoices > 0): ?>
-<div class="alert alert-warning" role="alert">
-    <strong>Cần kiểm tra dữ liệu hóa đơn:</strong>
-    <?php echo number_format($inconsistentInvoices, 0, ',', '.'); ?> hóa đơn hoàn thành có tổng tiền hóa đơn không khớp chi tiết hàng hoặc số phải trả không khớp thanh toán.
-    Doanh thu dùng <code>hoadon.khach_phai_tra</code>; giá trị hàng theo danh mục dùng <code>chitiethoadon.thanh_tien</code>.
-</div>
-<?php endif; ?>
 
 <div class="row g-4 mb-4">
     <div class="col-xl-8">
