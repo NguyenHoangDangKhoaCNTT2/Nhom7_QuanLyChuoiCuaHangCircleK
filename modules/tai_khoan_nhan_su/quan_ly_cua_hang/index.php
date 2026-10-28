@@ -1,7 +1,6 @@
 <?php
 require_once dirname(__DIR__, 3) . '/includes/config.php';
 
-// kết nối CSDL giống các module khác
 $host = '127.0.0.1'; $db = 'circlek'; $user = 'root'; $pass = '';
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass, [
@@ -29,7 +28,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Vui lòng nhập đầy đủ mã, tên và địa chỉ cửa hàng!');
             }
 
-            // check trùng mã cửa hàng (cột UNIQUE)
             $check = $pdo->prepare("SELECT id FROM cuahang WHERE ma_cua_hang = ? AND id != ?");
             $check->execute([$ma_cua_hang, $id]);
             if ($check->fetch()) {
@@ -53,7 +51,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $alertMsg = 'Đã xóa cửa hàng khỏi hệ thống!';
         }
     } catch (PDOException $pe) {
-        // cửa hàng đã có nhân viên/sản phẩm/hóa đơn liên quan -> không xóa được do ràng buộc khóa ngoại
         $alertMsg  = 'Không thể xóa: cửa hàng này còn nhân viên, sản phẩm hoặc hóa đơn liên quan! Hãy chuyển trạng thái "Tạm đóng" thay vì xóa.';
         $alertType = 'danger';
     } catch (Exception $ex) {
@@ -77,7 +74,6 @@ if ($filterTt !== '') {
     $params[] = (int)$filterTt;
 }
 
-// phân trang 10 cửa hàng/trang
 $moiTrang = 10;
 $trang    = max(1, (int)($_GET['trang'] ?? 1));
 
@@ -88,7 +84,6 @@ $tongTrang = max(1, (int)ceil($tongCH / $moiTrang));
 $trang     = min($trang, $tongTrang);
 $offset    = ($trang - 1) * $moiTrang;
 
-// "Quản lý" không có cột riêng trong cuahang -> suy ra từ nhân viên chức vụ "Quản Lý CH" của cửa hàng đó
 $sql = "SELECT ch.*,
         (SELECT nv.ho_ten FROM nhanvien nv WHERE nv.cuahang_id = ch.id AND nv.chuc_vu = 'Quản Lý CH' LIMIT 1) AS ten_quan_ly
         FROM cuahang ch
@@ -120,7 +115,7 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="title-icon" style="background: linear-gradient(135deg, var(--emerald), #059669)"><i class="fa-solid fa-store"></i></span>
                 Danh sách cửa hàng
             </h5>
-            <div class="panel-subtitle ms-5">Các cửa hàng trong chuỗi Circle K <span class="ms-2 badge rounded-pill bg-light text-dark border">Tổng: <?= $tongCH ?> cửa hàng</span></div>
+            <div class="panel-subtitle ms-5">Các cửa hàng trong chuỗi Circle K <span class="ms-2 badge rounded-pill bg-light text-dark border" style="font-size: 0.85rem;">Tổng: <?= $tongCH ?> cửa hàng</span></div>
         </div>
     </div>
 
@@ -213,7 +208,6 @@ require ROOT_PATH . '/includes/header.php';
                         </select>
                     </div>
                 </div>
-                <div class="small text-muted mt-2"><i class="fa-solid fa-circle-info me-1"></i>Quản lý cửa hàng được gán qua trang Quản lý Nhân viên (chọn chức vụ "Quản Lý CH").</div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn-ck btn-ck-soft" data-bs-dismiss="modal">Hủy</button>
