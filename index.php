@@ -59,11 +59,6 @@ require ROOT_PATH . '/includes/header.php';
             <?php endif; ?>
         </p>
         <?php if (!$daDangNhap): ?>
-        <div class="d-flex flex-wrap gap-2 mt-3">
-            <span class="hero-badge mb-0"><i class="fa-solid fa-shield-halved me-2"></i>Bảo mật theo vai trò</span>
-            <span class="hero-badge mb-0"><i class="fa-solid fa-store me-2"></i>Quản lý đa cửa hàng</span>
-            <span class="hero-badge mb-0"><i class="fa-solid fa-bolt me-2"></i>Vận hành tức thời</span>
-        </div>
         <?php endif; ?>
     </div>
 </section>
