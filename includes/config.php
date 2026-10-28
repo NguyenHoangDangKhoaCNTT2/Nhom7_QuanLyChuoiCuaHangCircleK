@@ -1,14 +1,15 @@
 <?php
+session_start();
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
 define('APP_NAME', 'Circle K Vietnam');
 define('ROOT_PATH', str_replace('\\', '/', dirname(__DIR__)));
 
-// BASE_URL tự tính: clone về để thư mục nào (htdocs/xxx hay php -S) cũng chạy
-$__docRoot = rtrim(str_replace('\\', '/', (string)realpath($_SERVER['DOCUMENT_ROOT'] ?? '')), '/');
-define('BASE_URL', ($__docRoot !== '' && strpos(ROOT_PATH, $__docRoot) === 0)
-    ? substr(ROOT_PATH, strlen($__docRoot))
-    : '');
+$__curDir  = str_replace('\\', '/', dirname($_SERVER['SCRIPT_FILENAME']));
+$__relPath = trim(str_ireplace(ROOT_PATH, '', $__curDir), '/');
+$__depth   = $__relPath === '' ? 0 : substr_count($__relPath, '/') + 1;
+$__urlDir  = explode('/', rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'])), '/'));
+define('BASE_URL', $__depth > 0 ? implode('/', array_slice($__urlDir, 0, -$__depth)) : implode('/', $__urlDir));
 
 function asset(string $path): string {
     $file = ROOT_PATH . '/assets/' . $path;
@@ -20,7 +21,6 @@ function url(string $path = ''): string {
     return BASE_URL . '/' . ltrim($path, '/');
 }
 
-// LUÔN dùng e() khi in dữ liệu ra HTML (chống XSS)
 function e($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
 function vnd($n): string { return number_format((float)$n, 0, '.', ','); }
@@ -33,13 +33,25 @@ function initial(string $name): string {
     return function_exists('mb_strtoupper') ? mb_strtoupper($first) : strtoupper($first);
 }
 
-// Tạm hardcode — sau này thay bằng $_SESSION
-$currentUser = ['name' => 'Nguyễn Văn A', 'role' => 'Admin Tổng'];
+function layVaiTro(PDO $pdo, int $nguoidung_id, int $phanquyen_id, string $username): array {
+    $stmt = $pdo->prepare("SELECT nhom FROM phanquyen_tuychinh WHERE nguoidung_id = ?");
+    $stmt->execute([$nguoidung_id]);
+    $tuyChinh = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    if (!empty($tuyChinh)) return $tuyChinh;
+
+    if ($phanquyen_id === 1) return ['nhan_su', 'hang_hoa_kho', 'ban_hang', 'thong_ke']; // Giám Đốc - full
+    $theoTaiKhoan = [
+        'qlt_phu'  => 'hang_hoa_kho', 
+        'qlt_nam'  => 'ban_hang',     
+        'qlt_thai' => 'thong_ke', 
+    ];
+    if (isset($theoTaiKhoan[$username])) return [$theoTaiKhoan[$username]];
+
+    $map = [2 => 'thong_ke', 3 => 'nhan_su', 4 => 'ban_hang', 5 => 'hang_hoa_kho'];
+    return [$map[$phanquyen_id] ?? 'nhan_su'];
+}
 
 $thu = ['Chủ Nhật','Thứ Hai','Thứ Ba','Thứ Tư','Thứ Năm','Thứ Sáu','Thứ Bảy'][(int)date('w')];
 $homNay = $thu . ', ' . date('d/m/Y');
-
-// Mỗi phần tử: [icon, màu, tiêu đề, nội dung, thời gian]
-$notifs = [];
 
 $menu = require __DIR__ . '/menu.php';

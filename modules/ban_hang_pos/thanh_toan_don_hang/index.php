@@ -129,7 +129,7 @@ $grandTotal = (float)($order['khach_phai_tra'] ?? 0);
 $vat        = max(0, $grandTotal - ($subtotal - $discount));
 
 $pageTitle  = 'Thanh toán đơn hàng';
-$activeMenu = 'thanh_toan';
+$activeMenu = 'thanhtoan';
 
 require ROOT_PATH . '/includes/header.php';
 ?>

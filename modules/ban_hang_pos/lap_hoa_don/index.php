@@ -191,7 +191,7 @@ foreach ($tierStats as $insightTier) {
 }
 
 $pageTitle  = 'Lập & Quản lý Hóa đơn';
-$activeMenu = 'lap_hoa_don';
+$activeMenu = 'hoadon';
 
 require ROOT_PATH . '/includes/header.php';
 ?>
