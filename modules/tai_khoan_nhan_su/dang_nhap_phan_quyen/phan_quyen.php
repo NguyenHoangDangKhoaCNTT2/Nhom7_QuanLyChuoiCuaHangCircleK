@@ -107,7 +107,7 @@ require ROOT_PATH . '/includes/header.php';
                         <span class="title-icon" style="background: linear-gradient(135deg, var(--ocean), #6366f1)"><i class="fa-solid fa-table-cells"></i></span>
                         Phân quyền
                     </h5>
-                    <div class="panel-subtitle ms-5">Nhân viên: <?= $taiKhoanChon ? e($taiKhoanChon['ho_ten'] ?: $taiKhoanChon['username']) : '—' ?></div>
+                    <div class="panel-subtitle ms-5"><?= $taiKhoanChon ? e($taiKhoanChon['ten_quyen']) . ': ' . e($taiKhoanChon['ho_ten'] ?: $taiKhoanChon['username']) : '—' ?></div>
                 </div>
             </div>
             <form method="POST" action="?id=<?= $dangChon ?>">

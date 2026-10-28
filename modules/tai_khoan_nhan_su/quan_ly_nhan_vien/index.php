@@ -1,7 +1,6 @@
 <?php
 require_once dirname(__DIR__, 3) . '/includes/config.php';
 
-// kết nối CSDL giống các module khác
 $host = '127.0.0.1'; $db = 'circlek'; $user = 'root'; $pass = '';
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass, [
@@ -31,19 +30,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($id > 0) {
-                // sửa nhân viên - không đụng tới tài khoản đăng nhập
                 $stmt = $pdo->prepare("UPDATE nhanvien SET ho_ten=?, so_dien_thoai=?, chuc_vu=?, cuahang_id=?, luong=?, ngay_vao_lam=? WHERE id=?");
                 $stmt->execute([$ho_ten, $so_dien_thoai, $chuc_vu, $cuahang_id, $luong, $ngay_vao_lam, $id]);
                 $alertMsg = "Đã cập nhật nhân viên <b>" . htmlspecialchars($ho_ten) . "</b>!";
             } else {
-                // thêm mới - nhanvien.nguoidung_id bắt buộc nên phải tạo tài khoản đăng nhập trước
                 $phanquyen = $pdo->prepare("SELECT id FROM phanquyen WHERE ten_quyen = ?");
                 $phanquyen->execute([$chuc_vu]);
                 $phanquyen_id = $phanquyen->fetchColumn();
-                if (!$phanquyen_id) $phanquyen_id = 4; // mặc định Nhân Viên Bán Hàng nếu không khớp quyền nào
+                if (!$phanquyen_id) $phanquyen_id = 4;
 
                 $username = 'nv' . preg_replace('/\D/', '', $so_dien_thoai ?: uniqid());
-                $passHash = password_hash('123456', PASSWORD_DEFAULT); // mật khẩu mặc định, nhân viên tự đổi sau
+                $passHash = password_hash('123456', PASSWORD_DEFAULT); 
 
                 $pdo->beginTransaction();
                 $uStmt = $pdo->prepare("INSERT INTO nguoidung (username, password, phanquyen_id) VALUES (?,?,?)");
@@ -64,7 +61,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $alertMsg = 'Đã xóa nhân viên khỏi hệ thống!';
         }
     } catch (PDOException $pe) {
-        // nhân viên đã có hóa đơn/phiếu nhập liên quan -> không xóa được do ràng buộc khóa ngoại
         $alertMsg  = 'Không thể xóa: nhân viên này đã có hóa đơn hoặc phiếu liên quan trong hệ thống!';
         $alertType = 'danger';
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -96,7 +92,6 @@ if ($filterCv !== '') {
     $params[] = $filterCv;
 }
 
-// phân trang 10 nhân viên/trang
 $moiTrang = 10;
 $trang    = max(1, (int)($_GET['trang'] ?? 1));
 
@@ -117,8 +112,7 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $dsNhanVien = $stmt->fetchAll();
 
-$dsCuaHang = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
-$dsChucVu  = $pdo->query("SELECT id, ten_quyen FROM phanquyen ORDER BY id ASC")->fetchAll();
+$maNvTiepTheo = (int)$pdo->query("SELECT AUTO_INCREMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'nhanvien'")->fetchColumn();
 
 $pageTitle  = 'Quản lý Nhân viên';
 $activeMenu = 'nhanvien';
@@ -196,8 +190,6 @@ require ROOT_PATH . '/includes/header.php';
             </tbody>
         </table>
     </div>
-
-    <!-- phân trang kiểu 1,2,3... -->
     <?php if ($tongTrang > 1): ?>
     <div class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-3">
         <?php
@@ -265,7 +257,7 @@ require ROOT_PATH . '/includes/header.php';
 function openAddModal() {
     document.getElementById('modalNhanVienTitle').innerText = 'Thêm nhân viên mới';
     document.getElementById('nvId').value = 0;
-    document.getElementById('nvMa').value = 'Tự động sau khi lưu';
+    document.getElementById('nvMa').value = 'NV<?= str_pad($maNvTiepTheo, 4, '0', STR_PAD_LEFT) ?>';
     document.getElementById('nvTen').value = '';
     document.getElementById('nvCv').selectedIndex = 0;
     document.getElementById('nvCh').selectedIndex = 0;

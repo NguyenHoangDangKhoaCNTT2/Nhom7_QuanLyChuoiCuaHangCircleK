@@ -96,9 +96,7 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $dsKhachHang = $stmt->fetchAll();
 
-// gộp theo TÊN hạng thẻ để không hiện trùng (vd 2 dòng "Kim Cương" khác id trong CSDL vẫn chỉ hiện 1 lần)
-$dsHangThe = $pdo->query("SELECT MIN(id) AS id, hang_the FROM thetichdiem GROUP BY hang_the ORDER BY MIN(id) ASC")->fetchAll();
-$dsCuaHang = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+$maKhTiepTheo = (int)$pdo->query("SELECT AUTO_INCREMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'khachhang'")->fetchColumn();
 
 $pageTitle  = 'Quản lý Khách hàng';
 $activeMenu = 'khachhang';
@@ -241,7 +239,7 @@ require ROOT_PATH . '/includes/header.php';
 function openAddModal() {
     document.getElementById('modalKhachHangTitle').innerText = 'Thêm khách hàng mới';
     document.getElementById('khId').value = 0;
-    document.getElementById('khMa').value = 'Tự động sau khi lưu';
+    document.getElementById('khMa').value = 'KH<?= str_pad($maKhTiepTheo, 4, '0', STR_PAD_LEFT) ?>';
     document.getElementById('khTen').value = '';
     document.getElementById('khSdt').value = '';
     document.getElementById('khHang').value = '';
