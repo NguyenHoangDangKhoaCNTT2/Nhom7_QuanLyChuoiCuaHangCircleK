@@ -103,6 +103,107 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pos_action'] ?? '') === 'c
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pos_action'] ?? '') === 'sync_cart_pending') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+    try {
+        $orderId = (int)($_POST['order_id'] ?? 0);
+        $sessionOrderId = (int)($_SESSION['ck_pos_active_order_id'] ?? 0);
+        if ($orderId <= 0 || $orderId !== $sessionOrderId) {
+            echo json_encode(['success' => true, 'active' => false], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $newCart = json_decode($_POST['cart'] ?? '[]', true);
+        if (!is_array($newCart)) throw new RuntimeException('Dữ liệu giỏ hàng không hợp lệ.');
+        $newItems = [];
+        foreach ($newCart as $item) {
+            if (!is_array($item)) throw new RuntimeException('Sản phẩm không hợp lệ.');
+            $id = (int)($item['id'] ?? 0);
+            $qty = (int)($item['qty'] ?? 0);
+            $price = (float)($item['price'] ?? 0);
+            if ($id <= 0 || $qty <= 0 || $qty > 1000 || !is_finite($price) || $price < 0) {
+                throw new RuntimeException('Số lượng hoặc đơn giá sản phẩm không hợp lệ.');
+            }
+            if (!isset($newItems[$id])) {
+                $newItems[$id] = ['qty' => 0, 'price' => $price];
+            }
+            $newItems[$id]['qty'] += $qty;
+            $newItems[$id]['price'] = $price;
+        }
+        ksort($newItems, SORT_NUMERIC);
+        $pdo->beginTransaction();
+        $stmtOrder = $pdo->prepare("SELECT id, cuahang_id, nhanvien_id, trang_thai FROM hoadon WHERE id = ? FOR UPDATE");
+        $stmtOrder->execute([$orderId]);
+        $order = $stmtOrder->fetch();
+        if (!$order || $order['trang_thai'] !== 'Chờ thanh toán' || (int)$order['nhanvien_id'] !== $posStaffId) {
+            $pdo->commit();
+            unset($_SESSION['ck_pos_active_order_id']);
+            echo json_encode(['success' => true, 'active' => false], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $storeId = $posCanSwitchStore ? (int)($_POST['cuahang_id'] ?? $posAssignedStoreId) : $posAssignedStoreId;
+        if (!$newItems || $storeId !== (int)$order['cuahang_id']) {
+            cancelActivePosOrder($pdo, $orderId);
+            $pdo->commit();
+            unset($_SESSION['ck_pos_active_order_id']);
+            echo json_encode(['success' => true, 'active' => false], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $oldItemsStmt = $pdo->prepare("SELECT sanpham_id, so_luong FROM chitiethoadon WHERE hoadon_id = ?");
+        $oldItemsStmt->execute([$orderId]);
+        $oldItems = [];
+        foreach ($oldItemsStmt->fetchAll() as $old) {
+            $oldId = (int)$old['sanpham_id'];
+            $oldItems[$oldId] = ($oldItems[$oldId] ?? 0) + (int)$old['so_luong'];
+        }
+        $allIds = array_unique(array_merge(array_keys($oldItems), array_keys($newItems)));
+        sort($allIds, SORT_NUMERIC);
+        $takeStock = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong - ? WHERE sanpham_id = ? AND cuahang_id = ? AND so_luong >= ?");
+        $restoreStock = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong + ? WHERE sanpham_id = ? AND cuahang_id = ?");
+        $verifyProduct = $pdo->prepare("SELECT id FROM sanpham WHERE id = ? AND trang_thai = 1 LIMIT 1");
+        foreach ($allIds as $productId) {
+            $newQty = (int)($newItems[$productId]['qty'] ?? 0);
+            $oldQty = (int)($oldItems[$productId] ?? 0);
+            if ($newQty > 0) {
+                $verifyProduct->execute([$productId]);
+                if (!$verifyProduct->fetchColumn()) throw new RuntimeException('Sản phẩm đã ngừng bán.');
+            }
+            $difference = $newQty - $oldQty;
+            if ($difference > 0) {
+                $takeStock->execute([$difference, $productId, $storeId, $difference]);
+                if ($takeStock->rowCount() !== 1) throw new RuntimeException('Số lượng tồn kho không đủ cho sản phẩm đã chọn.');
+            } elseif ($difference < 0) {
+                $restoreStock->execute([-$difference, $productId, $storeId]);
+            }
+        }
+        $promoId = !empty($_POST['khuyenmai_id']) ? (int)$_POST['khuyenmai_id'] : null;
+        if ($promoId !== null) {
+            $promoStmt = $pdo->prepare("SELECT id FROM khuyenmai WHERE id = ? AND (cuahang_id IS NULL OR cuahang_id = ?) AND thoi_gian_bat_dau <= NOW() AND thoi_gian_ket_thuc >= NOW() AND (so_luong IS NULL OR so_luong > 0)");
+            $promoStmt->execute([$promoId, $storeId]);
+            if (!$promoStmt->fetchColumn()) throw new RuntimeException('Mã khuyến mãi không còn hợp lệ.');
+        }
+        $customerId = !empty($_POST['khachhang_id']) ? (int)$_POST['khachhang_id'] : null;
+        $manualName = $customerId === null ? mb_substr(trim((string)($_POST['ten_khach_nhap'] ?? '')), 0, 100, 'UTF-8') : '';
+        $subtotal = 0;
+        foreach ($newItems as $line) $subtotal += $line['qty'] * $line['price'];
+        $discount = max(0, min($subtotal, (float)($_POST['tien_giam_gia'] ?? 0)));
+        $total = $subtotal - $discount + round(($subtotal - $discount) * 0.08);
+        $pdo->prepare("DELETE FROM chitiethoadon WHERE hoadon_id = ?")->execute([$orderId]);
+        $addItem = $pdo->prepare("INSERT INTO chitiethoadon (hoadon_id, sanpham_id, so_luong, don_gia, thanh_tien) VALUES (?, ?, ?, ?, ?)");
+        foreach ($newItems as $productId => $line) {
+            $addItem->execute([$orderId, $productId, $line['qty'], $line['price'], $line['qty'] * $line['price']]);
+        }
+        $updateOrder = $pdo->prepare("UPDATE hoadon SET khachhang_id = ?, ten_khach_nhap = ?, khuyenmai_id = ?, tong_tien = ?, tien_giam_gia = ?, khach_phai_tra = ? WHERE id = ? AND trang_thai = 'Chờ thanh toán'");
+        $updateOrder->execute([$customerId, $manualName !== '' ? $manualName : null, $promoId, $subtotal, $discount, $total, $orderId]);
+        $pdo->commit();
+        echo json_encode(['success' => true, 'active' => true, 'hoadon_id' => $orderId], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_POST['pos_action'] === 'create_order_pending') {
     header('Content-Type: application/json; charset=utf-8');
     try {
@@ -247,6 +348,14 @@ require ROOT_PATH . '/includes/header.php';
     .tier-vang { background: #f59e0b; color: #fff; }
     .tier-kimcuong { background: #06b6d4; color: #fff; }
     .tier-none { background: #e2e8f0; color: #475569; }
+    .pos-customer-search { position: relative; z-index: 15; }
+    .pos-customer-suggestions { position: absolute; z-index: 100; top: calc(100% + 5px); left: 0; right: 0; max-height: 245px; overflow-y: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 14px 35px rgba(15,23,42,.16); padding: 5px; }
+    .pos-customer-suggestions[hidden] { display: none !important; }
+    .pos-customer-suggestion { width: 100%; background: #fff; border: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; border-radius: 8px; text-align: left; cursor: pointer; color: #1e293b; }
+    .pos-customer-suggestion:hover, .pos-customer-suggestion.is-active { background: #eff6ff; }
+    .pos-customer-suggestion-name { font-weight: 700; font-size: .9rem; }
+    .pos-customer-suggestion-detail { font-size: .8rem; color: #64748b; }
+    .pos-customer-no-result { padding: 12px; font-size: .85rem; color: #64748b; }
     
     .cart-item-anim { animation: slideInLeft 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
     @keyframes slideInLeft { 0% { opacity: 0; transform: translateX(-15px); } 100% { opacity: 1; transform: translateX(0); } }
@@ -369,17 +478,10 @@ require ROOT_PATH . '/includes/header.php';
             </div>
 
             <div class="p-3 bg-light border rounded-3 mb-3 flex-shrink-0">
-                <div class="input-group input-group-sm mb-2 shadow-sm">
+                <div class="input-group input-group-sm mb-2 shadow-sm pos-customer-search">
                     <span class="input-group-text bg-white border-end-0 text-muted"><i class="fa-solid fa-user-pen"></i></span>
-                    <input type="text" class="form-control border-start-0 fw-medium" id="posCustomerInput" placeholder="Nhập tên khách hàng..." list="customerSuggestList" autocomplete="off" oninput="handleCustomerInput()">
-                    <datalist id="customerSuggestList">
-                        <option value="Khách lẻ (Vãng lai)"></option>
-                        <?php foreach($khachhang_list as $kh): 
-                            $tag = !empty($kh['hang_the']) ? '[' . $kh['hang_the'] . ']' : '[Bạc]';
-                        ?>
-                            <option value="<?= htmlspecialchars($kh['ho_ten']) ?>"><?= $tag ?> - SĐT: <?= htmlspecialchars($kh['so_dien_thoai'] ?? '') ?></option>
-                        <?php endforeach; ?>
-                    </datalist>
+                    <input type="text" class="form-control border-start-0 fw-medium" id="posCustomerInput" placeholder="Nhập tên khách hàng..." autocomplete="off" aria-autocomplete="list" aria-controls="posCustomerSuggestions" aria-expanded="false" oninput="handleCustomerInput()">
+                    <div id="posCustomerSuggestions" class="pos-customer-suggestions" role="listbox" aria-label="Gợi ý tên khách hàng" hidden></div>
                 </div>
 
                 <div class="d-flex align-items-center gap-2 mb-2">
@@ -391,7 +493,8 @@ require ROOT_PATH . '/includes/header.php';
                             $badgeLabel = '[' . $tier . ']';
                         ?>
                             <option value="<?=$kh['id']?>" 
-                                    data-name="<?=htmlspecialchars($kh['ho_ten'])?>" 
+                                    data-name="<?=htmlspecialchars($kh['ho_ten'], ENT_QUOTES, 'UTF-8')?>" 
+                                    data-phone="<?=htmlspecialchars($kh['so_dien_thoai'] ?? '', ENT_QUOTES, 'UTF-8')?>"
                                     data-disc="<?=$disc?>" 
                                     data-tier="<?=htmlspecialchars($tier)?>">
                                 <?= $badgeLabel ?> <?= htmlspecialchars($kh['ho_ten']) ?>
@@ -448,6 +551,9 @@ require ROOT_PATH . '/includes/header.php';
 
 <script>
     const posSignedInUserId = <?= (int)$_SESSION['user_id'] ?>;
+    let pendingActiveOrderId = <?= (int)($_SESSION['ck_pos_active_order_id'] ?? 0) ?>;
+    let pendingCartSync = Promise.resolve();
+    let pendingCartSyncTimer = null;
     const posSignedInStaffId = <?= $posStaffId ?>;
     const posSignedInStoreId = <?= $posAssignedStoreId ?>;
     const posCanSwitchStore = <?= $posCanSwitchStore ? 'true' : 'false' ?>;
@@ -493,6 +599,7 @@ require ROOT_PATH . '/includes/header.php';
         codeInput.value = validSelection ? (validSelection.dataset.code || '') : '';
         clearPromoFeedback();
         calcTotal();
+        markPendingCartChanged();
     }
 
 
@@ -544,6 +651,7 @@ require ROOT_PATH . '/includes/header.php';
         const select = document.getElementById('posPromoSelect');
         select.value = '';
         calcTotal();
+        markPendingCartChanged();
         if (!code) {
             showPromoFeedback('Vui lòng nhập mã voucher.', false);
             input.focus();
@@ -578,6 +686,7 @@ require ROOT_PATH . '/includes/header.php';
         select.value = option.value;
         input.value = code;
         calcTotal();
+        markPendingCartChanged();
         showPromoFeedback('Đã áp dụng mã ' + code + ' thành công.', true);
     }
 
@@ -707,6 +816,68 @@ require ROOT_PATH . '/includes/header.php';
         localStorage.setItem('ck_pos_staff', document.getElementById('posStaffSelect').value);
     }
 
+    function currentPendingOrderId() {
+        return pendingActiveOrderId || Number(localStorage.getItem('ck_pos_pending_order') || 0);
+    }
+
+    function createPendingOrderFormData(action) {
+        const fd = new FormData();
+        fd.append('pos_action', action);
+        fd.append('cart', JSON.stringify(cart));
+        fd.append('cuahang_id', document.getElementById('posStoreSelect').value);
+        const selectedCustomerId = document.getElementById('posCustomerSelect').value;
+        fd.append('khachhang_id', /^\d+$/.test(selectedCustomerId) ? selectedCustomerId : '');
+        fd.append('ten_khach_nhap', selectedCustomerId === '__manual__' ? document.getElementById('posCustomerInput').value.trim() : '');
+        fd.append('khuyenmai_id', document.getElementById('posPromoSelect').value);
+        fd.append('tong_tien', calc.s);
+        fd.append('tien_giam_gia', calc.d);
+        fd.append('khach_phai_tra', calc.t);
+        return fd;
+    }
+
+    function queuePendingCartSync() {
+        if (!currentPendingOrderId()) return pendingCartSync;
+        pendingCartSync = pendingCartSync.catch(() => {}).then(async () => {
+            const orderId = currentPendingOrderId();
+            if (!orderId) return;
+            const fd = createPendingOrderFormData('sync_cart_pending');
+            fd.append('order_id', String(orderId));
+            const response = await fetch(window.location.pathname, { method: 'POST', body: fd, keepalive: true, cache: 'no-store' });
+            if (!response.ok) throw new Error('Không thể kết nối máy chủ để đồng bộ đơn hàng.');
+            const result = await response.json();
+            if (!result.success) throw new Error(result.message || 'Không thể cập nhật đơn chờ thanh toán.');
+            if (!result.active) {
+                pendingActiveOrderId = 0;
+                localStorage.removeItem('ck_pos_pending_order');
+            } else {
+                pendingActiveOrderId = Number(result.hoadon_id);
+                localStorage.setItem('ck_pos_pending_order', String(result.hoadon_id));
+            }
+            localStorage.setItem('ck_pos_order_updated', String(Date.now()));
+        });
+        return pendingCartSync;
+    }
+
+    function markPendingCartChanged() {
+        if (!currentPendingOrderId()) return;
+        if (pendingCartSyncTimer !== null) clearTimeout(pendingCartSyncTimer);
+        pendingCartSyncTimer = setTimeout(() => {
+            pendingCartSyncTimer = null;
+            queuePendingCartSync().catch(error => {
+                console.error(error);
+            });
+        }, 120);
+    }
+
+    async function flushPendingCartSync() {
+        if (pendingCartSyncTimer !== null) {
+            clearTimeout(pendingCartSyncTimer);
+            pendingCartSyncTimer = null;
+            queuePendingCartSync();
+        }
+        await pendingCartSync;
+    }
+
     function addToCart(id, name, price, sku) {
         beep(); 
         const i = cart.findIndex(x => x.id === id);
@@ -718,6 +889,7 @@ require ROOT_PATH . '/includes/header.php';
             cart.unshift({id, name, price, sku: sku, qty:1}); 
         }
         drawCart();
+        markPendingCartChanged();
         document.getElementById('cartBox').scrollTop = 0;
     }
 
@@ -729,7 +901,8 @@ require ROOT_PATH . '/includes/header.php';
             if(item.qty > 0) {
                 cart.unshift(item);
             }
-            drawCart(); 
+            drawCart();
+            markPendingCartChanged();
             document.getElementById('cartBox').scrollTop = 0;
         }
     }
@@ -821,6 +994,70 @@ require ROOT_PATH . '/includes/header.php';
         if (option) option.remove();
     }
 
+    let activeCustomerSuggestionIndex = -1;
+
+    function normalizeCustomerText(value) {
+        return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
+    }
+
+    function closeCustomerSuggestions() {
+        const dropdown = document.getElementById('posCustomerSuggestions');
+        dropdown.hidden = true;
+        dropdown.replaceChildren();
+        document.getElementById('posCustomerInput').setAttribute('aria-expanded', 'false');
+        activeCustomerSuggestionIndex = -1;
+    }
+
+    function chooseCustomerSuggestion(id) {
+        const select = document.getElementById('posCustomerSelect');
+        select.value = id;
+        handleCustomerSelect();
+        closeCustomerSuggestions();
+        markPendingCartChanged();
+    }
+
+    function updateCustomerSuggestions() {
+        const input = document.getElementById('posCustomerInput');
+        const dropdown = document.getElementById('posCustomerSuggestions');
+        const keyword = normalizeCustomerText(input.value);
+        if (!keyword || document.activeElement !== input) {
+            closeCustomerSuggestions();
+            return;
+        }
+        const matches = Array.from(document.getElementById('posCustomerSelect').options).filter(option => {
+            if (!/^\d+$/.test(option.value)) return false;
+            const name = normalizeCustomerText(option.dataset.name);
+            const phone = String(option.dataset.phone || '').trim();
+            return name.includes(keyword) || phone.includes(input.value.trim());
+        }).slice(0, 40);
+        dropdown.replaceChildren();
+        activeCustomerSuggestionIndex = -1;
+        if (!matches.length) {
+            const empty = document.createElement('div');
+            empty.className = 'pos-customer-no-result';
+            empty.textContent = 'Không tìm thấy khách hàng. Bạn có thể nhập tên mới.';
+            dropdown.appendChild(empty);
+        }
+        for (const option of matches) {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'pos-customer-suggestion';
+            item.setAttribute('role', 'option');
+            item.setAttribute('aria-selected', 'false');
+            const name = document.createElement('span');
+            name.className = 'pos-customer-suggestion-name';
+            name.textContent = option.dataset.name || '';
+            const detail = document.createElement('span');
+            detail.className = 'pos-customer-suggestion-detail';
+            detail.textContent = '[' + (option.dataset.tier || 'Bạc') + ']' + (option.dataset.phone ? ' - SĐT: ' + option.dataset.phone : '');
+            item.append(name, detail);
+            item.addEventListener('click', () => chooseCustomerSuggestion(option.value));
+            dropdown.appendChild(item);
+        }
+        dropdown.hidden = false;
+        input.setAttribute('aria-expanded', 'true');
+    }
+
     function handleCustomerSelect() {
         const sel = document.getElementById('posCustomerSelect');
         const opt = sel.options[sel.selectedIndex];
@@ -829,6 +1066,7 @@ require ROOT_PATH . '/includes/header.php';
         document.getElementById('posCustomerInput').value = opt.value ? (opt.dataset.name || '') : '';
         updateTierBadge(opt.dataset.tier || '');
         calcTotal();
+        closeCustomerSuggestions();
     }
 
     function handleCustomerInput() {
@@ -860,6 +1098,7 @@ require ROOT_PATH . '/includes/header.php';
             updateTierBadge('none');
         }
         calcTotal();
+        updateCustomerSuggestions();
     }
 
     const headerSearch = document.querySelector('header input[type="text"], input[placeholder*="Tìm"]');
@@ -882,52 +1121,53 @@ require ROOT_PATH . '/includes/header.php';
         } 
     });
 
-    function goToCheckout(targetHref = '../thanh_toan_don_hang/index.php') {
-        if (cart.length === 0) return alert('Vui lòng quét hoặc chọn ít nhất 1 sản phẩm để thanh toán!');
+    async function goToCheckout(targetHref = '../thanh_toan_don_hang/index.php') {
+        if (cart.length === 0) {
+            openPosNotice({
+                title: 'Giỏ hàng trống',
+                message: 'Vui lòng quét hoặc chọn ít nhất 1 sản phẩm để thanh toán!',
+                mode: 'info',
+                confirmText: 'Đã hiểu'
+            });
+            return;
+        }
         const btn = document.getElementById('btnGoCheckout');
         if (btn.disabled) return;
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang chốt đơn...';
-
-        const fd = new FormData();
-        fd.append('pos_action', 'create_order_pending');
-        fd.append('cart', JSON.stringify(cart));
-        fd.append('cuahang_id', document.getElementById('posStoreSelect').value);
-        fd.append('nhanvien_id', String(posSignedInStaffId));
-        const selectedCustomerId = document.getElementById('posCustomerSelect').value;
-        fd.append('khachhang_id', /^\d+$/.test(selectedCustomerId) ? selectedCustomerId : '');
-        fd.append('ten_khach_nhap', selectedCustomerId === '__manual__' ? document.getElementById('posCustomerInput').value.trim() : '');
-        fd.append('khuyenmai_id', document.getElementById('posPromoSelect').value);
-        fd.append('tong_tien', calc.s);
-        fd.append('tien_giam_gia', calc.d);
-        fd.append('khach_phai_tra', calc.t);
-
-        fetch(window.location.pathname, { method: 'POST', body: fd })
-            .then(r => r.json())
-            .then(d => {
-                if (d.success) {
-                    localStorage.setItem('ck_pos_pending_order', String(d.hoadon_id));
-                    window.location.replace(targetHref.split('?')[0] + '?id=' + d.hoadon_id);
-                } else {
-                    alert('Lỗi: ' + d.message);
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
-                }
-            })
-            .catch(err => {
-                alert('Lỗi kết nối máy chủ: ' + err);
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
-            });
+        try {
+            await flushPendingCartSync();
+            if (cart.length === 0) throw new Error('Giỏ hàng trống.');
+            let orderId = currentPendingOrderId();
+            if (!orderId) {
+                const fd = createPendingOrderFormData('create_order_pending');
+                const response = await fetch(window.location.pathname, { method: 'POST', body: fd, cache: 'no-store' });
+                if (!response.ok) throw new Error('Không thể kết nối máy chủ.');
+                const result = await response.json();
+                if (!result.success) throw new Error(result.message || 'Không thể tạo đơn hàng.');
+                orderId = Number(result.hoadon_id);
+                pendingActiveOrderId = orderId;
+                localStorage.setItem('ck_pos_pending_order', String(orderId));
+            }
+            window.location.assign(targetHref.split('?')[0] + '?id=' + orderId);
+        } catch (error) {
+            alert('Lỗi: ' + error.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
+        }
     }
 
     async function clearPendingPosOrder() {
+        if (pendingCartSyncTimer !== null) { clearTimeout(pendingCartSyncTimer); pendingCartSyncTimer = null; }
+        await pendingCartSync.catch(() => {});
         const fd = new FormData();
         fd.append('pos_action', 'cancel_cart_pending');
         const response = await fetch(window.location.pathname, { method: 'POST', body: fd });
         const data = await response.json();
         if (!data.success) throw new Error(data.message || 'Không thể hủy đơn hàng.');
+        pendingActiveOrderId = 0;
         localStorage.removeItem('ck_pos_pending_order');
+        localStorage.setItem('ck_pos_order_updated', String(Date.now()));
         localStorage.setItem('ck_pos_cart_cleared', String(Date.now()));
         cart = [];
         document.getElementById('posCustomerInput').value = '';
@@ -1016,6 +1256,45 @@ require ROOT_PATH . '/includes/header.php';
         drawCart();
         triggerSearch('', false);
         window.addEventListener('focus', refreshPosPromotions);
+        ['posCustomerSelect', 'posPromoSelect', 'posStoreSelect'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => {
+                calcTotal();
+                markPendingCartChanged();
+            });
+        });
+        const customerInputEl = document.getElementById('posCustomerInput');
+        const customerSuggestionsEl = document.getElementById('posCustomerSuggestions');
+        customerInputEl.addEventListener('input', markPendingCartChanged);
+        customerInputEl.addEventListener('focus', updateCustomerSuggestions);
+        customerInputEl.addEventListener('keydown', event => {
+            const buttons = Array.from(customerSuggestionsEl.querySelectorAll('.pos-customer-suggestion'));
+            if (customerSuggestionsEl.hidden || !buttons.length) {
+                if (event.key === 'Escape') closeCustomerSuggestions();
+                return;
+            }
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                activeCustomerSuggestionIndex = event.key === 'ArrowDown'
+                    ? (activeCustomerSuggestionIndex + 1) % buttons.length
+                    : (activeCustomerSuggestionIndex + buttons.length - 1) % buttons.length;
+                buttons.forEach((button, index) => {
+                    button.classList.toggle('is-active', index === activeCustomerSuggestionIndex);
+                    button.setAttribute('aria-selected', String(index === activeCustomerSuggestionIndex));
+                });
+                buttons[activeCustomerSuggestionIndex].scrollIntoView({block: 'nearest'});
+            } else if (event.key === 'Enter' && activeCustomerSuggestionIndex >= 0) {
+                event.preventDefault();
+                buttons[activeCustomerSuggestionIndex].click();
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                closeCustomerSuggestions();
+            }
+        });
+        document.addEventListener('pointerdown', event => {
+            if (!event.target.closest('.pos-customer-search')) closeCustomerSuggestions();
+        });
+        markPendingCartChanged();
+
 
         function initSidebarScroll() {
             const viewport = document.querySelector('.os-viewport') || document.querySelector('.sidebar');
@@ -1073,6 +1352,11 @@ require ROOT_PATH . '/includes/header.php';
                     if (cart.length > 0) {
                         e.preventDefault();
                         goToCheckout(link.href.split('?')[0]);
+                    } else if (currentPendingOrderId() || pendingCartSyncTimer !== null) {
+                        e.preventDefault();
+                        flushPendingCartSync().then(() => {
+                            window.location.assign(link.href.split('?')[0]);
+                        }).catch(error => alert('Lỗi đồng bộ giỏ hàng: ' + error.message));
                     }
                 });
             }

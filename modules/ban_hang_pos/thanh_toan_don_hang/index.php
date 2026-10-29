@@ -1,6 +1,10 @@
 <?php
 require_once dirname(__DIR__, 3) . '/includes/config.php';
 date_default_timezone_set('Asia/Ho_Chi_Minh');
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+}
 
 $host = '127.0.0.1';
 $db   = 'circlek';
@@ -827,7 +831,7 @@ require ROOT_PATH . '/includes/header.php';
     }
 
     window.addEventListener('storage', event => {
-        if (event.key === 'ck_pos_cart_cleared') window.location.replace(window.location.pathname);
+        if (event.key === 'ck_pos_cart_cleared' || event.key === 'ck_pos_order_updated') window.location.reload();
     });
     window.addEventListener('pageshow', event => {
         if (event.persisted) window.location.reload();
