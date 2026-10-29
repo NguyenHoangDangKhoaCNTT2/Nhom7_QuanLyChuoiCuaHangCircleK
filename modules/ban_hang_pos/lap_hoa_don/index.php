@@ -16,6 +16,19 @@ try {
     die(json_encode(['success' => false, 'message' => $e->getMessage()]));
 }
 
+if (empty($_SESSION['user_id'])) {
+    header('Location: ' . url('modules/tai_khoan_nhan_su/dang_nhap_phan_quyen/dang_nhap.php'));
+    exit;
+}
+$stmtCurrentRole = $pdo->prepare("SELECT phanquyen_id FROM nguoidung WHERE id = ? AND trang_thai = 1 LIMIT 1");
+$stmtCurrentRole->execute([(int)$_SESSION['user_id']]);
+$currentRoleId = $stmtCurrentRole->fetchColumn();
+if ($currentRoleId === false) {
+    http_response_code(403);
+    exit('Tài khoản không hợp lệ hoặc đã bị khóa.');
+}
+$canCancelInvoices = in_array((int)$currentRoleId, [1, 2, 3], true);
+
 try {
     $tenKhachColumn = $pdo->query("SHOW COLUMNS FROM hoadon LIKE 'ten_khach_nhap'")->fetch();
     if (!$tenKhachColumn) {
@@ -68,30 +81,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     if ($_POST['action'] === 'cancel_order') {
+        if (!$canCancelInvoices) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Tài khoản nhân viên không có quyền hủy hóa đơn. Vui lòng liên hệ quản lý.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         $hd_id = (int)($_POST['hoadon_id'] ?? 0);
         try {
             $pdo->beginTransaction();
-            $stmtCancel = $pdo->prepare("UPDATE hoadon SET trang_thai = 'Đã hủy' WHERE id = ?");
-            $stmtCancel->execute([$hd_id]);
-
+            $stmtOrder = $pdo->prepare("SELECT id, cuahang_id, trang_thai FROM hoadon WHERE id = ? FOR UPDATE");
+            $stmtOrder->execute([$hd_id]);
+            $orderForCancel = $stmtOrder->fetch();
+            if (!$orderForCancel || !in_array($orderForCancel['trang_thai'], ['Hoàn thành', 'Đã thanh toán', 'Chờ thanh toán'], true)) {
+                throw new RuntimeException('Hóa đơn không tồn tại hoặc không thể hủy.');
+            }
             $stmtItems = $pdo->prepare("SELECT sanpham_id, so_luong FROM chitiethoadon WHERE hoadon_id = ?");
             $stmtItems->execute([$hd_id]);
             $items = $stmtItems->fetchAll();
-            
-            $stmtRestock = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong + ? WHERE sanpham_id = ?");
-            foreach ($items as $it) {
-                $stmtRestock->execute([$it['so_luong'], $it['sanpham_id']]);
+            $stmtCancel = $pdo->prepare("UPDATE hoadon SET trang_thai = 'Đã hủy' WHERE id = ? AND trang_thai = ?");
+            $stmtCancel->execute([$hd_id, $orderForCancel['trang_thai']]);
+            if ($stmtCancel->rowCount() !== 1) {
+                throw new RuntimeException('Không thể cập nhật trạng thái hóa đơn.');
             }
-
+            $stmtRestock = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong + ? WHERE sanpham_id = ? AND cuahang_id = ?");
+            foreach ($items as $it) {
+                $stmtRestock->execute([(int)$it['so_luong'], (int)$it['sanpham_id'], (int)$orderForCancel['cuahang_id']]);
+            }
             $pdo->commit();
-            echo json_encode(['success' => true]);
+            echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
             exit;
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
-            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
             exit;
         }
     }
+
 }
 
 $cuahang_list = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
@@ -247,6 +272,9 @@ require ROOT_PATH . '/includes/header.php';
     .table-order-pos td { font-size: 0.88rem; vertical-align: middle; border-bottom: 1px solid #f1f5f9; transition: background 0.2s; }
     .invoice-item-row { animation: fadeUpRow 0.4s ease backwards; }
     .invoice-item-row:hover td { background-color: #f8fafc; cursor: pointer; }
+    .table-order-pos th:first-child, .table-order-pos td:first-child { text-align: center; white-space: nowrap; width: 115px; }
+    .invoice-id-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 88px; padding: 6px 10px; background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; border-radius: 9px; font-size: .88rem; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: .25px; }
+    .invoice-sort-select { min-width: 174px; height: 36px; border-radius: 9px; font-size: .84rem; border-color: #e2e8f0; color: #334155; font-weight: 600; }
     @keyframes fadeUpRow { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
     .badge-status { padding: 4px 10px; border-radius: 99px; font-weight: 600; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px; }
@@ -302,6 +330,30 @@ require ROOT_PATH . '/includes/header.php';
     .ck-confirm-remove { border: 1px solid transparent; color: white; background: linear-gradient(105deg,#e11d48,#fb573d); }
     .ck-confirm-remove:hover { filter: brightness(.97); }
     @media (max-width: 480px) { .ck-confirm-content { padding: 28px 19px 21px; } }
+
+    .btn-ck.btn-ck-analytics { background: linear-gradient(110deg, #2563eb, #6366f1) !important; border: 1px solid transparent !important; color: #fff !important; box-shadow: 0 4px 12px rgba(37, 99, 235, .18); }
+    .btn-ck.btn-ck-analytics:hover { background: linear-gradient(110deg, #1d4ed8, #4f46e5) !important; color: #fff !important; box-shadow: 0 6px 16px rgba(37, 99, 235, .25); }
+    .btn-ck.btn-ck-recent { background: linear-gradient(110deg, #059669, #0d9488) !important; border: 1px solid transparent !important; color: #fff !important; box-shadow: 0 4px 12px rgba(5, 150, 105, .18); }
+    .btn-ck.btn-ck-recent:hover { background: linear-gradient(110deg, #047857, #0f766e) !important; color: #fff !important; box-shadow: 0 6px 16px rgba(5, 150, 105, .25); }
+    .btn-ck.btn-ck-analytics:focus-visible, .btn-ck.btn-ck-recent:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+
+    .ck-history-dialog { width: min(470px, calc(100vw - 28px)); }
+    .ck-history-dialog .ck-confirm-content { padding: 28px 26px 24px; }
+    .ck-history-symbol { background: #eff6ff; color: #2563eb; }
+    .ck-history-options { display: grid; gap: 9px; text-align: left; margin-top: 22px; }
+    .ck-history-option { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; cursor: pointer; font-size: .94rem; font-weight: 700; color: #334155; transition: background .18s, border-color .18s, box-shadow .18s; }
+    .ck-history-option:hover { background: #f8fafc; border-color: #fda4af; }
+    .ck-history-option:has(input:checked) { background: #fff1f2; border-color: #fb7185; box-shadow: 0 0 0 1px rgba(244,63,94,.08); color: #be123c; }
+    .ck-history-option input { appearance: none; -webkit-appearance: none; flex: 0 0 20px; width: 20px; height: 20px; margin: 0; border: 2px solid #94a3b8; border-radius: 50%; background: #fff; cursor: pointer; }
+    .ck-history-option input:checked { border: 6px solid #e11d48; }
+    .ck-history-option input:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+    .ck-history-note { font-size: .81rem; color: #64748b; margin-top: 14px; min-height: 22px; }
+    .ck-history-filter { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 0 4px 12px; padding: 9px 13px; border-radius: 10px; background: #fff1f2; color: #be123c; font-size: .82rem; font-weight: 650; }
+    .ck-history-filter[hidden] { display: none !important; }
+    .ck-history-reset { border: 0; background: transparent; color: #be123c; font-weight: 800; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+    .ck-history-apply { border: 0 !important; color: #fff; background: linear-gradient(105deg, #e11d48, #fb573d); }
+    @media (max-width: 480px) { .ck-history-dialog .ck-confirm-content { padding: 26px 17px 21px; } }
+
 
 </style>
 
@@ -376,8 +428,11 @@ require ROOT_PATH . '/includes/header.php';
             <div class="panel-subtitle ms-5">Tra cứu, in lại phiếu thu và quản lý lịch sử thanh toán toàn chuỗi Nha Trang</div>
         </div>
         <div class="d-flex align-items-center gap-2">
-            <button type="button" class="btn-ck btn-ck-soft" onclick="openExecutiveHub('revenue')">
+            <button type="button" class="btn-ck btn-ck-analytics" onclick="openExecutiveHub('revenue')">
                 <i class="fa-solid fa-chart-simple me-1"></i> Trung tâm Phân tích
+            </button>
+            <button type="button" class="btn-ck btn-ck-recent" onclick="openRecentInvoiceHistory()">
+                <i class="fa-solid fa-clock-rotate-left me-1"></i> Đơn gần nhất
             </button>
             <a href="../man_hinh_ban_hang/index.php" class="btn-ck btn-ck-primary"><i class="fa-solid fa-cash-register me-1"></i> Bán hàng mới (POS)</a>
         </div>
@@ -416,6 +471,20 @@ require ROOT_PATH . '/includes/header.php';
         </div>
     </div>
 
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 px-1 mb-2">
+        <span class="text-muted small">Có <strong id="invoiceMatchCount" class="text-dark"><?= count($orders) ?></strong> hóa đơn</span>
+        <div class="d-flex align-items-center gap-2">
+            <label for="invoiceSort" class="small text-muted fw-semibold mb-0">Sắp xếp theo số</label>
+            <select class="form-select form-select-sm invoice-sort-select" id="invoiceSort" onchange="filterInvoices()">
+                <option value="asc">Mã HĐ: nhỏ → lớn</option>
+                <option value="desc">Mã HĐ: lớn → nhỏ</option>
+            </select>
+        </div>
+    </div>
+    <div class="ck-history-filter" id="invoiceHistoryFilterBanner" hidden>
+        <span><i class="fa-solid fa-clock-rotate-left me-1"></i> Đang xem lịch sử: <strong id="invoiceHistoryFilterLabel"></strong></span>
+        <button type="button" class="ck-history-reset" onclick="clearRecentInvoiceHistory()">Xem tất cả</button>
+    </div>
     <div class="table-responsive">
         <table class="table table-hover table-order-pos align-middle">
             <thead>
@@ -456,12 +525,14 @@ require ROOT_PATH . '/includes/header.php';
                         $delay += 0.05;
                     ?>
                     <tr class="invoice-item-row" style="animation-delay: <?= min($delay, 1) ?>s;"
+                        data-invoice-number="<?= (int)$od['id'] ?>"
+                        data-created-time="<?= (int)(strtotime($od['ngay_tao']) * 1000) ?>"
                         data-search="<?= htmlspecialchars(mb_strtolower($code . ' ' . $od['ten_nv'] . ' ' . ($od['ten_kh'] ?? 'Khách lẻ')), ENT_QUOTES, 'UTF-8') ?>"
                         data-store="<?= htmlspecialchars($od['ten_cua_hang'] ?? '') ?>"
                         data-method="<?= htmlspecialchars($od['phuong_thuc'] ?? '') ?>"
                         data-status="<?= $isCompleted ? 'Đã thanh toán' : htmlspecialchars($od['trang_thai'] ?? '') ?>"
                         data-amount="<?= (float)$od['khach_phai_tra'] ?>">
-                        <td><span class="order-code fs-6"><?= $code ?></span></td>
+                        <td><span class="invoice-id-badge"><?= htmlspecialchars($code, ENT_QUOTES, 'UTF-8') ?></span></td>
                         <td>
                             <div class="fw-semibold text-dark"><?= date('H:i:s', strtotime($od['ngay_tao'])) ?></div>
                             <small class="text-muted"><?= date('d/m/Y', strtotime($od['ngay_tao'])) ?></small>
@@ -502,7 +573,7 @@ require ROOT_PATH . '/includes/header.php';
                             <button type="button" class="btn btn-sm btn-light border px-2 py-1 me-1 text-primary" title="Xem & In hóa đơn" onclick="viewInvoiceDetail(<?= $od['id'] ?>)">
                                 <i class="fa-solid fa-eye"></i>
                             </button>
-                            <?php if ($isCompleted || $isPending): ?>
+                            <?php if ($canCancelInvoices && ($isCompleted || $isPending)): ?>
                                 <button type="button" class="btn btn-sm btn-light border px-2 py-1 text-danger" title="Hủy hóa đơn hoàn trả" onclick="cancelInvoice(<?= $od['id'] ?>, '<?= $code ?>')">
                                     <i class="fa-solid fa-rotate-left"></i>
                                 </button>
@@ -916,6 +987,26 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
 
+<dialog class="ck-confirm-dialog ck-history-dialog" id="ckInvoiceHistoryDialog" aria-labelledby="ckInvoiceHistoryTitle" aria-describedby="ckInvoiceHistoryDescription">
+    <div class="ck-confirm-content">
+        <button type="button" class="ck-confirm-close" onclick="closeRecentInvoiceHistory()" aria-label="Đóng"><i class="fa-solid fa-xmark"></i></button>
+        <div class="ck-confirm-symbol ck-history-symbol"><i class="fa-solid fa-clock-rotate-left"></i></div>
+        <h4 class="ck-confirm-heading" id="ckInvoiceHistoryTitle">Lịch sử hóa đơn</h4>
+        <p class="ck-confirm-message" id="ckInvoiceHistoryDescription">Chọn khoảng thời gian bạn muốn xem.</p>
+        <div class="ck-history-options" role="radiogroup" aria-label="Khoảng thời gian tra cứu">
+            <label class="ck-history-option"><span>24 giờ qua</span><input type="radio" name="recentInvoiceRange" value="24h" checked></label>
+            <label class="ck-history-option"><span>7 ngày qua</span><input type="radio" name="recentInvoiceRange" value="7d"></label>
+            <label class="ck-history-option"><span>4 tuần qua</span><input type="radio" name="recentInvoiceRange" value="4w"></label>
+            <label class="ck-history-option"><span>Từ trước đến nay</span><input type="radio" name="recentInvoiceRange" value="all"></label>
+        </div>
+        <div class="ck-history-note" id="ckInvoiceHistoryCount" aria-live="polite"></div>
+        <div class="ck-confirm-buttons">
+            <button type="button" class="ck-confirm-keep" onclick="closeRecentInvoiceHistory()">Đóng</button>
+            <button type="button" class="ck-history-apply" onclick="applyRecentInvoiceHistory()">Xem lịch sử</button>
+        </div>
+    </div>
+</dialog>
+
 <dialog class="ck-confirm-dialog" id="ckConfirmDialog" aria-labelledby="ckConfirmTitle" aria-describedby="ckConfirmMessage">
     <div class="ck-confirm-content">
         <button type="button" class="ck-confirm-close" id="ckConfirmClose" aria-label="Đóng"><i class="fa-solid fa-xmark"></i></button>
@@ -1061,6 +1152,60 @@ require ROOT_PATH . '/includes/header.php';
 
     const invoicePageSize = 10;
     let invoiceCurrentPage = 1;
+    let invoiceHistoryStartMs = null;
+    const invoiceHistoryLabels = { '24h': '24 giờ qua', '7d': '7 ngày qua', '4w': '4 tuần qua', all: 'Từ trước đến nay' };
+    const invoiceHistoryDurations = { '24h': 86400000, '7d': 604800000, '4w': 2419200000 };
+
+    function selectedRecentInvoiceRange() {
+        return document.querySelector('input[name="recentInvoiceRange"]:checked').value;
+    }
+
+    function updateRecentInvoiceCount() {
+        const range = selectedRecentInvoiceRange();
+        const start = range === 'all' ? null : Date.now() - invoiceHistoryDurations[range];
+        const count = Array.from(document.querySelectorAll('.invoice-item-row')).filter(row =>
+            start === null || Number(row.dataset.createdTime) >= start
+        ).length;
+        document.getElementById('ckInvoiceHistoryCount').textContent = `Có ${count.toLocaleString('vi-VN')} hóa đơn trong khoảng thời gian này.`;
+    }
+
+    function openRecentInvoiceHistory() {
+        updateRecentInvoiceCount();
+        const dialog = document.getElementById('ckInvoiceHistoryDialog');
+        if (!dialog.open) dialog.showModal();
+    }
+
+    function closeRecentInvoiceHistory() {
+        const dialog = document.getElementById('ckInvoiceHistoryDialog');
+        if (dialog.open) dialog.close();
+    }
+
+    function applyRecentInvoiceHistory() {
+        const range = selectedRecentInvoiceRange();
+        invoiceHistoryStartMs = range === 'all' ? null : Date.now() - invoiceHistoryDurations[range];
+        document.getElementById('filterKeyword').value = '';
+        document.getElementById('filterStore').value = '';
+        document.getElementById('filterMethod').value = '';
+        document.getElementById('filterStatus').value = '';
+        document.getElementById('invoiceSort').value = 'desc';
+        const banner = document.getElementById('invoiceHistoryFilterBanner');
+        banner.hidden = range === 'all';
+        document.getElementById('invoiceHistoryFilterLabel').textContent = invoiceHistoryLabels[range];
+        closeRecentInvoiceHistory();
+        filterInvoices();
+        document.querySelector('.table-responsive').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function clearRecentInvoiceHistory() {
+        invoiceHistoryStartMs = null;
+        document.getElementById('invoiceHistoryFilterBanner').hidden = true;
+        document.querySelector('input[name="recentInvoiceRange"][value="all"]').checked = true;
+        filterInvoices();
+    }
+
+    document.querySelectorAll('input[name="recentInvoiceRange"]').forEach(input => {
+        input.addEventListener('change', updateRecentInvoiceCount);
+    });
 
     function changeInvoicePage(page) {
         invoiceCurrentPage = page;
@@ -1107,15 +1252,21 @@ require ROOT_PATH . '/includes/header.php';
         const method = document.getElementById('filterMethod').value;
         const status = document.getElementById('filterStatus').value;
         const rows = Array.from(document.querySelectorAll('.invoice-item-row'));
+        const sortDirection = document.getElementById('invoiceSort').value === 'desc' ? -1 : 1;
+        rows.sort((a, b) => sortDirection * (Number(a.dataset.invoiceNumber) - Number(b.dataset.invoiceNumber)));
+        const invoiceTableBody = document.getElementById('invoiceTableBody');
+        rows.forEach(row => invoiceTableBody.appendChild(row));
 
         const matchingRows = rows.filter(r => {
             const mSearch = r.getAttribute('data-search').includes(kw);
             const mStore = !store || r.getAttribute('data-store') === store;
             const mMethod = !method || r.getAttribute('data-method') === method;
             const mStatus = !status || r.getAttribute('data-status') === status;
-            return mSearch && mStore && mMethod && mStatus;
+            const mPeriod = invoiceHistoryStartMs === null || Number(r.dataset.createdTime) >= invoiceHistoryStartMs;
+            return mSearch && mStore && mMethod && mStatus && mPeriod;
         });
 
+        document.getElementById('invoiceMatchCount').textContent = matchingRows.length.toLocaleString('vi-VN');
         if (resetPage) invoiceCurrentPage = 1;
         const totalPages = Math.ceil(matchingRows.length / invoicePageSize);
         invoiceCurrentPage = Math.max(1, Math.min(invoiceCurrentPage, totalPages || 1));

@@ -20,7 +20,7 @@ if (empty($_SESSION['user_id'])) {
     header('Location: ' . url('modules/tai_khoan_nhan_su/dang_nhap_phan_quyen/dang_nhap.php'));
     exit;
 }
-$stmtSignedIn = $pdo->prepare("SELECT nv.id, nv.ho_ten, nv.chuc_vu, nv.cuahang_id FROM nhanvien nv JOIN nguoidung nd ON nd.id = nv.nguoidung_id WHERE nd.id = ? AND nd.trang_thai = 1 LIMIT 1");
+$stmtSignedIn = $pdo->prepare("SELECT nv.id, nv.ho_ten, nv.chuc_vu, nv.cuahang_id, nd.phanquyen_id FROM nhanvien nv JOIN nguoidung nd ON nd.id = nv.nguoidung_id WHERE nd.id = ? AND nd.trang_thai = 1 LIMIT 1");
 $stmtSignedIn->execute([(int)$_SESSION['user_id']]);
 $posSignedInEmployee = $stmtSignedIn->fetch();
 if (!$posSignedInEmployee) {
@@ -29,11 +29,64 @@ if (!$posSignedInEmployee) {
 }
 $posStaffId = (int)$posSignedInEmployee['id'];
 $posAssignedStoreId = (int)$posSignedInEmployee['cuahang_id'];
-$posCanSwitchStore = in_array((int)($_SESSION['phanquyen_id'] ?? 0), [1, 2], true);
+$posUserRole = (int)$posSignedInEmployee['phanquyen_id'];
+$posCanSwitchStore = in_array($posUserRole, [1, 2], true);
 $posStaffLabel = $posSignedInEmployee['ho_ten'];
 if (trim((string)$posSignedInEmployee['chuc_vu']) !== '') {
     $posStaffLabel .= ' [' . $posSignedInEmployee['chuc_vu'] . ']';
 }
+
+$posAllStores = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+$posStoreCodeIds = array_column($posAllStores, 'id', 'ma_cua_hang');
+$posStoreNames = array_column($posAllStores, 'ten_cua_hang', 'id');
+$posRegionalLeaders = $pdo->query("SELECT nv.id, nv.ho_ten FROM nhanvien nv JOIN nguoidung nd ON nd.id = nv.nguoidung_id WHERE nd.phanquyen_id = 2 AND nd.trang_thai = 1 ORDER BY nv.id ASC")->fetchAll();
+$posBranchManagers = $pdo->query("SELECT nv.cuahang_id, nv.ho_ten FROM nhanvien nv JOIN nguoidung nd ON nd.id = nv.nguoidung_id WHERE nd.phanquyen_id = 3 AND nd.trang_thai = 1 ORDER BY nv.id ASC")->fetchAll();
+$posBranchManagerNames = [];
+foreach ($posBranchManagers as $manager) {
+    $storeId = (int)$manager['cuahang_id'];
+    if (!isset($posBranchManagerNames[$storeId])) {
+        $posBranchManagerNames[$storeId] = (string)$manager['ho_ten'];
+    }
+}
+$posRegionalAssignments = [];
+$posAssignmentStores = $posAllStores;
+usort($posAssignmentStores, static function ($a, $b) {
+    return strcmp(
+        hash('sha256', 'circlek-phan-cong-qltruong-2026-' . $a['ma_cua_hang']),
+        hash('sha256', 'circlek-phan-cong-qltruong-2026-' . $b['ma_cua_hang'])
+    );
+});
+if ($posRegionalLeaders) {
+    foreach ($posAssignmentStores as $index => $store) {
+        $leader = $posRegionalLeaders[$index % count($posRegionalLeaders)];
+        $storeId = (int)$store['id'];
+        $posRegionalAssignments[$storeId] = [
+            'regional_id' => (int)$leader['id'],
+            'regional' => (string)$leader['ho_ten'],
+            'branch' => $posBranchManagerNames[$storeId] ?? 'Chưa phân công'
+        ];
+    }
+}
+$posAllowedStoreIds = [];
+foreach ($posAllStores as $store) {
+    $storeId = (int)$store['id'];
+    if ($posUserRole === 1 ||
+        ($posUserRole === 2 && (int)($posRegionalAssignments[$storeId]['regional_id'] ?? 0) === $posStaffId) ||
+        (!in_array($posUserRole, [1, 2], true) && $storeId === $posAssignedStoreId)) {
+        $posAllowedStoreIds[] = $storeId;
+    }
+}
+if (!$posAllowedStoreIds) {
+    http_response_code(403);
+    exit('Tài khoản này chưa được phân công cửa hàng đang hoạt động.');
+}
+$posAllowedStoreLookup = array_fill_keys($posAllowedStoreIds, true);
+$posDefaultStoreId = in_array($posAssignedStoreId, $posAllowedStoreIds, true)
+    ? $posAssignedStoreId : $posAllowedStoreIds[0];
+$cuahang_list = array_values(array_filter($posAllStores, static function ($store) use ($posAllowedStoreLookup) {
+    return isset($posAllowedStoreLookup[(int)$store['id']]);
+}));
+$posRegionalAssignments = array_intersect_key($posRegionalAssignments, $posAllowedStoreLookup);
 
 try {
     $tenKhachColumn = $pdo->query("SHOW COLUMNS FROM hoadon LIKE 'ten_khach_nhap'")->fetch();
@@ -141,7 +194,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pos_action'] ?? '') === 's
             echo json_encode(['success' => true, 'active' => false], JSON_UNESCAPED_UNICODE);
             exit;
         }
-        $storeId = $posCanSwitchStore ? (int)($_POST['cuahang_id'] ?? $posAssignedStoreId) : $posAssignedStoreId;
+        $storeId = $posCanSwitchStore ? (int)($_POST['cuahang_id'] ?? $posDefaultStoreId) : $posAssignedStoreId;
+        if (!isset($posAllowedStoreLookup[$storeId])) {
+            throw new RuntimeException('Bạn không được phép bán hàng tại chi nhánh này.');
+        }
         if (!$newItems || $storeId !== (int)$order['cuahang_id']) {
             cancelActivePosOrder($pdo, $orderId);
             $pdo->commit();
@@ -208,7 +264,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
     header('Content-Type: application/json; charset=utf-8');
     try {
         $cart           = json_decode($_POST['cart'] ?? '[]', true);
-        $cuahang_id     = $posCanSwitchStore ? (int)($_POST['cuahang_id'] ?? $posAssignedStoreId) : $posAssignedStoreId;
+        $cuahang_id     = $posCanSwitchStore ? (int)($_POST['cuahang_id'] ?? $posDefaultStoreId) : $posAssignedStoreId;
+        if (!isset($posAllowedStoreLookup[$cuahang_id])) {
+            echo json_encode(['success' => false, 'message' => 'Bạn không được phép bán hàng tại chi nhánh này.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         $nhanvien_id    = $posStaffId;
         $verifyStore = $pdo->prepare("SELECT id FROM cuahang WHERE id = ? AND trang_thai = 1 LIMIT 1");
         $verifyStore->execute([$cuahang_id]);
@@ -268,14 +328,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
 }
 
 $sanpham_list = $pdo->query("SELECT sp.*, dm.ten_danh_muc FROM sanpham sp LEFT JOIN danhmuc dm ON sp.danhmuc_id = dm.id WHERE sp.trang_thai = 1 ORDER BY sp.id ASC")->fetchAll();
-$cuahang_list = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
-$posStoreCodeIds = array_column($cuahang_list, 'id', 'ma_cua_hang');
-$posStoreNames = array_column($cuahang_list, 'ten_cua_hang', 'id');
-if (!$posCanSwitchStore) {
-    $cuahang_list = array_values(array_filter($cuahang_list, static function($store) use ($posAssignedStoreId) {
-        return (int)$store['id'] === $posAssignedStoreId;
-    }));
-}
 
 $khachhang_list = $pdo->query("SELECT kh.*, ttd.hang_the, ttd.ti_le_giam_gia FROM khachhang kh LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id ORDER BY kh.id ASC")->fetchAll();
 $stmtAvailablePromos = $pdo->prepare("SELECT id, cuahang_id, ten_km, ma_voucher, loai_km, gia_tri FROM khuyenmai WHERE thoi_gian_bat_dau <= ? AND thoi_gian_ket_thuc >= ? AND (so_luong IS NULL OR so_luong > 0) ORDER BY id ASC");
@@ -422,6 +474,11 @@ require ROOT_PATH . '/includes/header.php';
                 <select class="form-select flex-shrink-0" id="posStaffSelect" style="width: auto; min-width: 220px; height: 44px; border-radius: 10px; font-weight: 500;" disabled>
                     <option value="<?=$posStaffId?>">👤 <?=htmlspecialchars($posStaffLabel, ENT_QUOTES, 'UTF-8')?></option>
                 </select>
+
+                <div class="w-100 d-flex flex-wrap align-items-center gap-3" style="font-size: .8rem; color: #64748b; margin-top: -5px;">
+                    <span><i class="fa-solid fa-user-tie me-1"></i>Quản lý trưởng phụ trách: <strong id="posRegionalLeaderName" style="color: #334155;"></strong></span>
+                    <span><i class="fa-solid fa-store me-1"></i>Quản lý cửa hàng: <strong id="posBranchManagerName" style="color: #334155;"></strong></span>
+                </div>
             </div>
 
             <div class="prod-scroll-wrap" id="productScrollWrap">
@@ -556,7 +613,9 @@ require ROOT_PATH . '/includes/header.php';
     let pendingCartSyncTimer = null;
     const posSignedInStaffId = <?= $posStaffId ?>;
     const posSignedInStoreId = <?= $posAssignedStoreId ?>;
+    const posDefaultStoreId = <?= $posDefaultStoreId ?>;
     const posCanSwitchStore = <?= $posCanSwitchStore ? 'true' : 'false' ?>;
+    const posRegionalAssignments = <?= json_encode($posRegionalAssignments, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     let allPromoOptions = Array.from(document.querySelectorAll('#posPromoSelect option')).slice(1);
 
     async function refreshPosPromotions() {
@@ -692,7 +751,10 @@ require ROOT_PATH . '/includes/header.php';
 
     function updateStaffByBranch() {
         const branchSelect = document.getElementById('posStoreSelect');
-        if (!posCanSwitchStore) branchSelect.value = String(posSignedInStoreId);
+        if (!posCanSwitchStore) branchSelect.value = String(posDefaultStoreId);
+        const assignedManagers = posRegionalAssignments[branchSelect.value] || {};
+        document.getElementById('posRegionalLeaderName').textContent = assignedManagers.regional || 'Chưa phân công';
+        document.getElementById('posBranchManagerName').textContent = assignedManagers.branch || 'Chưa phân công';
         localStorage.setItem('ck_pos_store', branchSelect.value);
         localStorage.setItem('ck_pos_staff', String(posSignedInStaffId));
         updatePromoByBranch();
@@ -1233,7 +1295,7 @@ require ROOT_PATH . '/includes/header.php';
         if (posCanSwitchStore && savedStore && Array.from(storeSelect.options).some(option => option.value === savedStore)) {
             storeSelect.value = savedStore;
         } else {
-            storeSelect.value = String(posSignedInStoreId);
+            storeSelect.value = String(posDefaultStoreId);
         }
         updateStaffByBranch();
 
