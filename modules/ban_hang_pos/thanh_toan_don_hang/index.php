@@ -16,9 +16,59 @@ try {
     die("Lỗi kết nối CSDL: " . $e->getMessage());
 }
 
+try {
+    $tenKhachColumn = $pdo->query("SHOW COLUMNS FROM hoadon LIKE 'ten_khach_nhap'")->fetch();
+    if (!$tenKhachColumn) {
+        $pdo->exec("ALTER TABLE hoadon ADD COLUMN ten_khach_nhap VARCHAR(100) NULL");
+    }
+} catch (PDOException $e) {
+    die('Không thể cập nhật cột tên khách hàng: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8'));
+}
+
+
 try { $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_khach_dua DECIMAL(12,2) NULL"); } catch (Exception $e) { }
 try { $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_thoi DECIMAL(12,2) NULL"); } catch (Exception $e) { }
 try { $pdo->exec("ALTER TABLE khuyenmai ADD COLUMN so_luong_da_dung INT DEFAULT 0"); } catch (Exception $e) { }
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'cancel_payment_order') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $hoadon_id = (int)($_POST['hoadon_id'] ?? 0);
+        $sessionOrderId = (int)($_SESSION['ck_pos_active_order_id'] ?? 0);
+        if ($hoadon_id <= 0 || $hoadon_id !== $sessionOrderId) {
+            throw new RuntimeException('Đơn hàng không còn chờ thanh toán.');
+        }
+
+        $pdo->beginTransaction();
+        $stmt = $pdo->prepare("SELECT id, cuahang_id, trang_thai FROM hoadon WHERE id = ? FOR UPDATE");
+        $stmt->execute([$hoadon_id]);
+        $activeOrder = $stmt->fetch();
+        if (!$activeOrder || $activeOrder['trang_thai'] !== 'Chờ thanh toán') {
+            throw new RuntimeException('Đơn hàng đã được thanh toán hoặc đã hủy.');
+        }
+
+        $stmtItems = $pdo->prepare("SELECT sanpham_id, so_luong FROM chitiethoadon WHERE hoadon_id = ?");
+        $stmtItems->execute([$hoadon_id]);
+        $restoreStock = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong + ? WHERE sanpham_id = ? AND cuahang_id = ?");
+        foreach ($stmtItems->fetchAll() as $item) {
+            $restoreStock->execute([(int)$item['so_luong'], (int)$item['sanpham_id'], (int)$activeOrder['cuahang_id']]);
+        }
+
+        $stmtCancel = $pdo->prepare("UPDATE hoadon SET trang_thai = 'Đã hủy' WHERE id = ? AND trang_thai = 'Chờ thanh toán'");
+        $stmtCancel->execute([$hoadon_id]);
+        if ($stmtCancel->rowCount() !== 1) {
+            throw new RuntimeException('Không thể hủy đơn hàng. Vui lòng thử lại.');
+        }
+
+        $pdo->commit();
+        unset($_SESSION['ck_pos_active_order_id']);
+        echo json_encode(['success' => true, 'message' => 'Đã hủy đơn hàng thành công.'], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'confirm_payment') {
     header('Content-Type: application/json; charset=utf-8');
@@ -29,14 +79,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $tien_khach_dua = isset($_POST['tien_khach_dua']) ? (float)$_POST['tien_khach_dua'] : $so_tien;
         $tien_thoi      = isset($_POST['tien_thoi']) ? (float)$_POST['tien_thoi'] : 0;
 
-        if ($hoadon_id <= 0) {
-            echo json_encode(['success' => false, 'message' => 'Mã hóa đơn không hợp lệ']);
+        if ($hoadon_id <= 0 || $hoadon_id !== (int)($_SESSION['ck_pos_active_order_id'] ?? 0)) {
+            echo json_encode(['success' => false, 'message' => 'Đơn hàng không còn chờ thanh toán.']);
             exit;
         }
 
         $pdo->beginTransaction();
+        $stmtActive = $pdo->prepare("SELECT trang_thai, khach_phai_tra FROM hoadon WHERE id = ? FOR UPDATE");
+        $stmtActive->execute([$hoadon_id]);
+        $activeOrder = $stmtActive->fetch();
+        if (!$activeOrder || $activeOrder['trang_thai'] !== 'Chờ thanh toán') {
+            throw new RuntimeException('Đơn hàng đã được thanh toán hoặc đã hủy.');
+        }
+        $so_tien = (float)$activeOrder['khach_phai_tra'];
+        if ($phuong_thuc === 'Tiền mặt' && $tien_khach_dua < $so_tien) {
+            throw new RuntimeException('Số tiền khách đưa không đủ để thanh toán.');
+        }
+        $tien_thoi = $phuong_thuc === 'Tiền mặt' ? max(0, $tien_khach_dua - $so_tien) : 0;
 
-        $stmtHd = $pdo->prepare("UPDATE hoadon SET trang_thai = 'Hoàn thành' WHERE id = ?");
+        $stmtHd = $pdo->prepare("UPDATE hoadon SET trang_thai = 'Hoàn thành' WHERE id = ? AND trang_thai = 'Chờ thanh toán'");
         $stmtHd->execute([$hoadon_id]);
 
         $stmtCheck = $pdo->prepare("SELECT id FROM thanhtoan WHERE hoadon_id = ?");
@@ -68,6 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
 
         $pdo->commit();
+        unset($_SESSION['ck_pos_active_order_id']);
         echo json_encode(['success' => true, 'message' => 'Thanh toán thành công!']);
         exit;
     } catch (Exception $e) {
@@ -77,52 +139,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-$hoadon_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$sessionOrderId = (int)($_SESSION['ck_pos_active_order_id'] ?? 0);
+$requestedOrderId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$hoadon_id = $sessionOrderId > 0 && ($requestedOrderId === 0 || $requestedOrderId === $sessionOrderId) ? $sessionOrderId : 0;
+$order = false;
+$items = [];
+
 if ($hoadon_id > 0) {
-    $stmt = $pdo->prepare("SELECT hd.*, ch.ten_cua_hang, ch.dia_chi AS dia_chi_ch, ch.so_dien_thoai AS sdt_ch, nv.ho_ten AS ten_nv, kh.ho_ten AS ten_kh, kh.so_dien_thoai AS sdt_kh, ttd.hang_the 
-                           FROM hoadon hd 
-                           LEFT JOIN cuahang ch ON hd.cuahang_id = ch.id 
-                           LEFT JOIN nhanvien nv ON hd.nhanvien_id = nv.id 
-                           LEFT JOIN khachhang kh ON hd.khachhang_id = kh.id 
+    $stmt = $pdo->prepare("SELECT hd.*, ch.ten_cua_hang, ch.dia_chi AS dia_chi_ch, ch.so_dien_thoai AS sdt_ch, nv.ho_ten AS ten_nv, COALESCE(NULLIF(TRIM(hd.ten_khach_nhap), ''), kh.ho_ten) AS ten_kh, kh.so_dien_thoai AS sdt_kh, ttd.hang_the
+                           FROM hoadon hd
+                           LEFT JOIN cuahang ch ON hd.cuahang_id = ch.id
+                           LEFT JOIN nhanvien nv ON hd.nhanvien_id = nv.id
+                           LEFT JOIN khachhang kh ON hd.khachhang_id = kh.id
                            LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id
-                           WHERE hd.id = ?");
+                           WHERE hd.id = ? AND hd.trang_thai = 'Chờ thanh toán'");
     $stmt->execute([$hoadon_id]);
     $order = $stmt->fetch();
-} else {
-    $order = $pdo->query("SELECT hd.*, ch.ten_cua_hang, ch.dia_chi AS dia_chi_ch, ch.so_dien_thoai AS sdt_ch, nv.ho_ten AS ten_nv, kh.ho_ten AS ten_kh, kh.so_dien_thoai AS sdt_kh, ttd.hang_the 
-                          FROM hoadon hd 
-                          LEFT JOIN cuahang ch ON hd.cuahang_id = ch.id 
-                          LEFT JOIN nhanvien nv ON hd.nhanvien_id = nv.id 
-                          LEFT JOIN khachhang kh ON hd.khachhang_id = kh.id 
-                          LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id
-                          ORDER BY hd.id DESC LIMIT 1")->fetch();
+    if ($order) {
+        $stmtItems = $pdo->prepare("SELECT ct.*, sp.ten_san_pham, sp.ma_san_pham, dm.ten_danh_muc
+                                    FROM chitiethoadon ct
+                                    JOIN sanpham sp ON ct.sanpham_id = sp.id
+                                    LEFT JOIN danhmuc dm ON sp.danhmuc_id = dm.id
+                                    WHERE ct.hoadon_id = ?");
+        $stmtItems->execute([$hoadon_id]);
+        $items = $stmtItems->fetchAll();
+        if (!$items) $order = false;
+    }
+    if (!$order) unset($_SESSION['ck_pos_active_order_id']);
 }
 
-$items = [];
-if ($order) {
-    $stmtItems = $pdo->prepare("SELECT ct.*, sp.ten_san_pham, sp.ma_san_pham, dm.ten_danh_muc 
-                                FROM chitiethoadon ct 
-                                JOIN sanpham sp ON ct.sanpham_id = sp.id 
-                                LEFT JOIN danhmuc dm ON sp.danhmuc_id = dm.id
-                                WHERE ct.hoadon_id = ?");
-    $stmtItems->execute([$order['id']]);
-    $items = $stmtItems->fetchAll();
-}
-
-if (!$order) {
-    $order = [
-        'id' => 1, 'tong_tien' => 45000, 'tien_giam_gia' => 0, 'khach_phai_tra' => 48600,
-        'ten_cua_hang' => 'Circle K - Trần Phú', 'dia_chi_ch' => '76 Trần Phú, Lộc Thọ, Nha Trang',
-        'sdt_ch' => '1900 3110', 'ten_nv' => 'Nguyễn Phương Nam', 'ten_kh' => 'Khách lẻ',
-        'hang_the' => null, 'ngay_tao' => date('Y-m-d H:i:s')
-    ];
-    $items = [
-        ['ten_san_pham' => 'Xúc xích nướng Đức', 'ma_san_pham' => 'SP007', 'so_luong' => 1, 'don_gia' => 20000, 'thanh_tien' => 20000],
-        ['ten_san_pham' => 'Trà đào cam sả', 'ma_san_pham' => 'SP008', 'so_luong' => 1, 'don_gia' => 25000, 'thanh_tien' => 25000],
-    ];
-}
-
-$orderCode  = '#HD' . (1024 + (int)$order['id']);
+$orderCode  = $order ? '#HD' . (1024 + (int)$order['id']) : '';
 $subtotal   = (float)($order['tong_tien'] ?? 0);
 $discount   = (float)($order['tien_giam_gia'] ?? 0);
 $grandTotal = (float)($order['khach_phai_tra'] ?? 0);
@@ -162,6 +208,24 @@ require ROOT_PATH . '/includes/header.php';
     .receipt-print-box .dashed-line { border-bottom: 1px dashed #000; margin: 12px 0; }
     .receipt-print-box .brand-logo { font-family: 'Arial Black', Arial, sans-serif; font-size: 1.5rem; font-weight: 900; letter-spacing: -1px; margin-bottom: 5px; text-transform: uppercase; }
     
+
+    .pay-cancel-dialog { width: min(440px, calc(100vw - 32px)); max-width: 100%; padding: 0; border: 0; border-radius: 22px; color: #1e293b; background: #ffffff; box-shadow: 0 24px 75px rgba(15, 23, 42, 0.23); overflow: visible; }
+    .pay-cancel-dialog[open] { animation: pay-cancel-dialog-in .2s ease-out; }
+    .pay-cancel-dialog::backdrop { background: rgba(15, 23, 42, .46); backdrop-filter: blur(3px); }
+    @keyframes pay-cancel-dialog-in { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .pay-cancel-inner { position: relative; padding: 30px 30px 26px; text-align: center; }
+    .pay-cancel-close { position: absolute; top: 13px; right: 14px; display: grid; place-items: center; width: 32px; height: 32px; border: 0; background: #f1f5f9; color: #64748b; border-radius: 10px; cursor: pointer; }
+    .pay-cancel-close:hover { background: #e2e8f0; color: #334155; }
+    .pay-cancel-icon { display: grid; place-items: center; width: 60px; height: 60px; margin: 0 auto 18px; border-radius: 18px; background: #fff1f2; color: #e11d48; font-size: 24px; }
+    .pay-cancel-title { margin: 0 0 9px; font-size: 1.24rem; font-weight: 800; color: #172033; }
+    .pay-cancel-message { margin: 0; color: #64748b; font-size: .93rem; line-height: 1.65; overflow-wrap: anywhere; }
+    .pay-cancel-actions { display: flex; justify-content: center; gap: 10px; margin-top: 26px; }
+    .pay-cancel-actions button { flex: 1; min-height: 43px; border-radius: 11px; padding: 9px 14px; font-size: .9rem; font-weight: 750; cursor: pointer; transition: transform .15s, background .15s; }
+    .pay-cancel-actions button:hover { transform: translateY(-1px); }
+    .pay-cancel-secondary { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
+    .pay-cancel-danger { background: linear-gradient(105deg, #e11d48, #fb573d); border: 1px solid transparent; color: white; }
+    @media (max-width: 480px) { .pay-cancel-inner { padding: 28px 22px 22px; } }
+
     @media print {
         @page { margin: 0; size: 80mm auto; }
         body * { visibility: hidden; }
@@ -175,6 +239,20 @@ require ROOT_PATH . '/includes/header.php';
     }
 </style>
 
+<?php if (!$order): ?>
+<div class="row g-4">
+    <div class="col-12">
+        <div class="bento-panel text-center py-5">
+            <i class="fa-solid fa-cart-shopping text-muted opacity-25 mb-3" style="font-size: 4rem;"></i>
+            <h4 class="fw-bold text-dark mb-2">Chưa có đơn hàng chờ thanh toán</h4>
+            <p class="text-muted mb-4">Giỏ hàng hiện đang trống. Vui lòng thêm sản phẩm tại màn hình bán hàng và chọn thanh toán.</p>
+            <a href="../man_hinh_ban_hang/index.php" class="btn-ck btn-ck-primary d-inline-flex align-items-center justify-content-center text-decoration-none px-4">
+                <i class="fa-solid fa-cart-plus me-2"></i>Đến màn hình bán hàng
+            </a>
+        </div>
+    </div>
+</div>
+<?php else: ?>
 <div class="row g-4">
     <div class="col-12 col-xl-7">
         <div class="bento-panel fade-up">
@@ -361,6 +439,8 @@ require ROOT_PATH . '/includes/header.php';
                 </div>
             </div>
 
+            <div class="small text-muted mb-2"><i class="fa-solid fa-user me-1"></i>Khách hàng: <strong class="text-dark"><?= htmlspecialchars($order['ten_kh'] ?: 'Khách lẻ (Vãng lai)', ENT_QUOTES, 'UTF-8') ?></strong></div>
+
             <div class="order-items-list mb-3" style="max-height: 290px; overflow-y: auto; padding-right: 4px;">
                 <?php foreach ($items as $it): 
                     $skuImg = !empty($it['ma_san_pham']) ? $it['ma_san_pham'] : 'SP001';
@@ -404,12 +484,30 @@ require ROOT_PATH . '/includes/header.php';
             <button type="button" class="btn-ck btn-ck-primary w-100 mt-4 py-2 fs-6" id="btnConfirmPay" onclick="submitPayment()">
                 <i class="fa-solid fa-circle-check me-2"></i>Xác nhận thanh toán
             </button>
-            <a href="../man_hinh_ban_hang/index.php" class="btn-ck btn-ck-soft w-100 mt-2 text-center text-decoration-none">
-                Quay lại giỏ hàng
-            </a>
+            <div class="d-flex flex-wrap gap-2 mt-2">
+                <a href="../man_hinh_ban_hang/index.php" class="btn-ck btn-ck-soft text-center text-decoration-none flex-grow-1">
+                    <i class="fa-solid fa-arrow-left me-1"></i>Quay lại giỏ hàng
+                </a>
+                <button type="button" class="btn-ck btn-ck-soft flex-grow-1" id="btnCancelOrder" onclick="showCancelOrderDialog()" style="color: #dc2626; border: 1px solid #fecaca; background: #fff7f7;">
+                    <i class="fa-solid fa-trash-can me-1"></i>Hủy đơn hàng
+                </button>
+            </div>
         </div>
     </div>
 </div>
+
+<dialog class="pay-cancel-dialog" id="payCancelDialog" aria-labelledby="payCancelTitle" aria-describedby="payCancelMessage">
+    <div class="pay-cancel-inner">
+        <button type="button" class="pay-cancel-close" onclick="closeCancelOrderDialog()" aria-label="Đóng"><i class="fa-solid fa-xmark"></i></button>
+        <div class="pay-cancel-icon"><i class="fa-solid fa-trash-can"></i></div>
+        <h4 class="pay-cancel-title" id="payCancelTitle">Hủy đơn hàng <?= htmlspecialchars($orderCode) ?>?</h4>
+        <p class="pay-cancel-message" id="payCancelMessage">Đơn hàng sẽ bị hủy, sản phẩm được hoàn lại kho và giỏ hàng sẽ được xóa.</p>
+        <div class="pay-cancel-actions">
+            <button type="button" class="pay-cancel-secondary" onclick="closeCancelOrderDialog()">Giữ đơn hàng</button>
+            <button type="button" class="pay-cancel-danger" onclick="confirmCancelOrderDialog()">Hủy đơn hàng</button>
+        </div>
+    </div>
+</dialog>
 
 <div class="modal fade" id="modalPaymentSuccess" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered">
@@ -621,6 +719,53 @@ require ROOT_PATH . '/includes/header.php';
         calculateChange();
     }
 
+    function showCancelOrderDialog() {
+        const dialog = document.getElementById('payCancelDialog');
+        if (dialog && !dialog.open) dialog.showModal();
+    }
+
+    function closeCancelOrderDialog() {
+        const dialog = document.getElementById('payCancelDialog');
+        if (dialog && dialog.open) dialog.close();
+    }
+
+    function confirmCancelOrderDialog() {
+        closeCancelOrderDialog();
+        cancelPendingOrder();
+    }
+
+    async function cancelPendingOrder() {
+
+        const cancelBtn = document.getElementById('btnCancelOrder');
+        const payBtn = document.getElementById('btnConfirmPay');
+        const payWasDisabled = payBtn.disabled;
+        cancelBtn.disabled = true;
+        payBtn.disabled = true;
+        cancelBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Đang hủy...';
+
+        try {
+            const fd = new FormData();
+            fd.append('action', 'cancel_payment_order');
+            fd.append('hoadon_id', <?= (int)$order['id'] ?>);
+            const response = await fetch(window.location.pathname, {method: 'POST', body: fd});
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || 'Không thể hủy đơn hàng.');
+
+            localStorage.removeItem('ck_pos_cart');
+            localStorage.removeItem('ck_pos_cus');
+            localStorage.removeItem('ck_pos_customer_name');
+            localStorage.removeItem('ck_pos_promo');
+            localStorage.removeItem('ck_pos_pending_order');
+            localStorage.setItem('ck_pos_cart_cleared', String(Date.now()));
+            window.location.replace(window.location.pathname);
+        } catch (err) {
+            alert('Lỗi: ' + err.message);
+            cancelBtn.disabled = false;
+            payBtn.disabled = payWasDisabled;
+            cancelBtn.innerHTML = '<i class="fa-solid fa-trash-can me-1"></i>Hủy đơn hàng';
+        }
+    }
+
     function submitPayment() {
         const givenCash = (selectedMethod === 'Tiền mặt') ? readCashVND() : grandTotal;
         if (selectedMethod === 'Tiền mặt' && givenCash < grandTotal) {
@@ -630,7 +775,9 @@ require ROOT_PATH . '/includes/header.php';
         }
         const changeCash = (selectedMethod === 'Tiền mặt') ? Math.max(0, givenCash - grandTotal) : 0;
         const btn = document.getElementById('btnConfirmPay');
+        const cancelBtn = document.getElementById('btnCancelOrder');
         btn.disabled = true;
+        cancelBtn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang ghi nhận...';
 
         const fd = new FormData();
@@ -648,8 +795,15 @@ require ROOT_PATH . '/includes/header.php';
         .then(res => res.json())
         .then(data => {
             btn.disabled = false;
+            cancelBtn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-circle-check me-2"></i>Xác nhận thanh toán';
             if (data.success) {
+                localStorage.removeItem('ck_pos_cart');
+                localStorage.removeItem('ck_pos_cus');
+            localStorage.removeItem('ck_pos_customer_name');
+                localStorage.removeItem('ck_pos_promo');
+                localStorage.removeItem('ck_pos_pending_order');
+                localStorage.setItem('ck_pos_cart_cleared', String(Date.now()));
                 document.getElementById('txtConfirmedMethod').textContent = selectedMethod;
                 const rcpCashBox = document.getElementById('rcpCashDetails');
                 if (selectedMethod === 'Tiền mặt') {
@@ -666,10 +820,18 @@ require ROOT_PATH . '/includes/header.php';
         })
         .catch(err => {
             btn.disabled = false;
+            cancelBtn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-circle-check me-2"></i>Xác nhận thanh toán';
             alert('Lỗi kết nối máy chủ: ' + err);
         });
     }
+
+    window.addEventListener('storage', event => {
+        if (event.key === 'ck_pos_cart_cleared') window.location.replace(window.location.pathname);
+    });
+    window.addEventListener('pageshow', event => {
+        if (event.persisted) window.location.reload();
+    });
 
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('customerCash').value = grandTotal;
@@ -697,4 +859,5 @@ require ROOT_PATH . '/includes/header.php';
         });
     });
 </script>
+<?php endif; ?>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

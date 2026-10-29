@@ -16,6 +16,15 @@ try {
     die(json_encode(['success' => false, 'message' => $e->getMessage()]));
 }
 
+try {
+    $tenKhachColumn = $pdo->query("SHOW COLUMNS FROM hoadon LIKE 'ten_khach_nhap'")->fetch();
+    if (!$tenKhachColumn) {
+        $pdo->exec("ALTER TABLE hoadon ADD COLUMN ten_khach_nhap VARCHAR(100) NULL");
+    }
+} catch (PDOException $e) {
+    die('Không thể cập nhật cột tên khách hàng: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8'));
+}
+
 try { $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_khach_dua DECIMAL(12,2) NULL"); } catch (Exception $e) { }
 try { $pdo->exec("ALTER TABLE thanhtoan ADD COLUMN tien_thoi DECIMAL(12,2) NULL"); } catch (Exception $e) { }
 
@@ -27,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $stmtHd = $pdo->prepare("SELECT hd.*, 
                                         DATE_FORMAT(hd.ngay_tao, '%d/%m/%Y %H:%i:%s') AS ngay_tao_fmt,
                                         ch.ten_cua_hang, ch.dia_chi AS dia_chi_ch, ch.so_dien_thoai AS sdt_ch,
-                                        nv.ho_ten AS ten_nv, kh.ho_ten AS ten_kh, kh.so_dien_thoai AS sdt_kh,
+                                        nv.ho_ten AS ten_nv, COALESCE(NULLIF(TRIM(hd.ten_khach_nhap), ''), kh.ho_ten) AS ten_kh, kh.so_dien_thoai AS sdt_kh,
                                         ttd.hang_the,
                                         km.ten_km, km.ma_voucher, tt.phuong_thuc, tt.so_tien_thanh_toan,
                                         tt.tien_khach_dua, tt.tien_thoi
@@ -135,7 +144,7 @@ $priceTiers = $pdo->query("SELECT
     FROM hoadon WHERE trang_thai IN ('Hoàn thành', 'Đã thanh toán')")->fetch();
 
 $sqlOrders = "SELECT hd.*, ch.ten_cua_hang, nv.ho_ten AS ten_nv, 
-                     kh.ho_ten AS ten_kh, kh.so_dien_thoai AS sdt_kh,
+                     COALESCE(NULLIF(TRIM(hd.ten_khach_nhap), ''), kh.ho_ten) AS ten_kh, kh.so_dien_thoai AS sdt_kh,
                      ttd.hang_the,
                      COALESCE(tt.phuong_thuc, 'Tiền mặt') AS phuong_thuc,
                      tt.tien_khach_dua, tt.tien_thoi
@@ -447,7 +456,7 @@ require ROOT_PATH . '/includes/header.php';
                         $delay += 0.05;
                     ?>
                     <tr class="invoice-item-row" style="animation-delay: <?= min($delay, 1) ?>s;"
-                        data-search="<?= mb_strtolower($code . ' ' . $od['ten_nv'] . ' ' . ($od['ten_kh'] ?? 'Khách lẻ')) ?>"
+                        data-search="<?= htmlspecialchars(mb_strtolower($code . ' ' . $od['ten_nv'] . ' ' . ($od['ten_kh'] ?? 'Khách lẻ')), ENT_QUOTES, 'UTF-8') ?>"
                         data-store="<?= htmlspecialchars($od['ten_cua_hang'] ?? '') ?>"
                         data-method="<?= htmlspecialchars($od['phuong_thuc'] ?? '') ?>"
                         data-status="<?= $isCompleted ? 'Đã thanh toán' : htmlspecialchars($od['trang_thai'] ?? '') ?>"
