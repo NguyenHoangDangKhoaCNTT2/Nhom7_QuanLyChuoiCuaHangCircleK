@@ -16,61 +16,269 @@ try {
     die(json_encode(['success' => false, 'message' => $e->getMessage()]));
 }
 
-$posVoucherStoreCodes = [
-    'WELCOME10' => 'CK005',
-    'GIAM5K' => 'CK007',
-    'GIAM10K' => 'CK008',
-    'HAPPY15' => 'CK009',
-    'NHAGIAO20' => 'CK001',
-    'BF15' => 'CK002',
-    'NOEL10' => 'CK003',
-    'DEMO26CK01' => 'CK009',
-    'DEMO26CK02' => 'CK006',
-    'DEMO26CK03' => 'CK007',
-    'DEMO26CK04' => 'CK010',
-    'DEMO26CK05' => 'CK010',
-    'DEMO26CK06' => 'CK002',
-    'DEMO26CK07' => 'CK011',
-    'DEMO26CK08' => 'CK001',
-    'DEMO26CK09' => 'CK010',
-    'DEMO26CK10' => 'CK003',
-    'DEMO26CK11' => 'CK007',
-    'DEMO26CK12' => 'CK003',
-    'DEMO26CK13' => 'CK006',
-    'DEMO26CK14' => 'CK008',
-    'DEMO26CK15' => 'CK012',
-    'DEMO26CK16' => 'CK001',
-    'DEMO26CK17' => 'CK002',
-    'DEMO26CK18' => 'CK005',
-    'DEMO26CK19' => 'CK004',
-    'DEMO26CK20' => 'CK008',
-    'DEMO26CK21' => 'CK011',
-    'DEMO26CK22' => 'CK009',
-    'DEMO26CK23' => 'CK002',
-    'DEMO26CK24' => 'CK001',
-    'DEMO26CK25' => 'CK011',
-    'DEMO26CK26' => 'CK004',
-    'DEMO26CK27' => 'CK006',
-    'DEMO26CK28' => 'CK003',
-    'DEMO26CK29' => 'CK012',
-    'DEMO26CK30' => 'CK004',
-    'DEMO26CK31' => 'CK005',
-];
+if (empty($_SESSION['user_id'])) {
+    header('Location: ' . url('modules/tai_khoan_nhan_su/dang_nhap_phan_quyen/dang_nhap.php'));
+    exit;
+}
+$stmtSignedIn = $pdo->prepare("SELECT nv.id, nv.ho_ten, nv.chuc_vu, nv.cuahang_id, nd.phanquyen_id FROM nhanvien nv JOIN nguoidung nd ON nd.id = nv.nguoidung_id WHERE nd.id = ? AND nd.trang_thai = 1 LIMIT 1");
+$stmtSignedIn->execute([(int)$_SESSION['user_id']]);
+$posSignedInEmployee = $stmtSignedIn->fetch();
+if (!$posSignedInEmployee) {
+    http_response_code(403);
+    exit('Tài khoản đăng nhập không có hồ sơ nhân viên hợp lệ.');
+}
+$posStaffId = (int)$posSignedInEmployee['id'];
+$posAssignedStoreId = (int)$posSignedInEmployee['cuahang_id'];
+$posUserRole = (int)$posSignedInEmployee['phanquyen_id'];
+$posCanSwitchStore = in_array($posUserRole, [1, 2], true);
+$posStaffLabel = $posSignedInEmployee['ho_ten'];
+if (trim((string)$posSignedInEmployee['chuc_vu']) !== '') {
+    $posStaffLabel .= ' [' . $posSignedInEmployee['chuc_vu'] . ']';
+}
 
-function resolvePosVoucherStoreId($voucher, $storeCodeIds, $voucherAssignments) {
-    if ($voucher['cuahang_id'] !== null) return (int)$voucher['cuahang_id'];
-    $voucherCode = strtoupper(trim((string)($voucher['ma_voucher'] ?? '')));
-    $branchCode = $voucherAssignments[$voucherCode] ?? '';
-    return $branchCode !== '' ? (int)($storeCodeIds[$branchCode] ?? 0) : 0;
+$posAllStores = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+$posStoreCodeIds = array_column($posAllStores, 'id', 'ma_cua_hang');
+$posStoreNames = array_column($posAllStores, 'ten_cua_hang', 'id');
+$posRegionalLeaders = $pdo->query("SELECT nv.id, nv.ho_ten FROM nhanvien nv JOIN nguoidung nd ON nd.id = nv.nguoidung_id WHERE nd.phanquyen_id = 2 AND nd.trang_thai = 1 ORDER BY nv.id ASC")->fetchAll();
+$posBranchManagers = $pdo->query("SELECT nv.cuahang_id, nv.ho_ten FROM nhanvien nv JOIN nguoidung nd ON nd.id = nv.nguoidung_id WHERE nd.phanquyen_id = 3 AND nd.trang_thai = 1 ORDER BY nv.id ASC")->fetchAll();
+$posBranchManagerNames = [];
+foreach ($posBranchManagers as $manager) {
+    $storeId = (int)$manager['cuahang_id'];
+    if (!isset($posBranchManagerNames[$storeId])) {
+        $posBranchManagerNames[$storeId] = (string)$manager['ho_ten'];
+    }
+}
+$posRegionalAssignments = [];
+$posAssignmentStores = $posAllStores;
+usort($posAssignmentStores, static function ($a, $b) {
+    return strcmp(
+        hash('sha256', 'circlek-phan-cong-qltruong-2026-' . $a['ma_cua_hang']),
+        hash('sha256', 'circlek-phan-cong-qltruong-2026-' . $b['ma_cua_hang'])
+    );
+});
+if ($posRegionalLeaders) {
+    foreach ($posAssignmentStores as $index => $store) {
+        $leader = $posRegionalLeaders[$index % count($posRegionalLeaders)];
+        $storeId = (int)$store['id'];
+        $posRegionalAssignments[$storeId] = [
+            'regional_id' => (int)$leader['id'],
+            'regional' => (string)$leader['ho_ten'],
+            'branch' => $posBranchManagerNames[$storeId] ?? 'Chưa phân công'
+        ];
+    }
+}
+$posAllowedStoreIds = [];
+foreach ($posAllStores as $store) {
+    $storeId = (int)$store['id'];
+    if ($posUserRole === 1 ||
+        ($posUserRole === 2 && (int)($posRegionalAssignments[$storeId]['regional_id'] ?? 0) === $posStaffId) ||
+        (!in_array($posUserRole, [1, 2], true) && $storeId === $posAssignedStoreId)) {
+        $posAllowedStoreIds[] = $storeId;
+    }
+}
+if (!$posAllowedStoreIds) {
+    http_response_code(403);
+    exit('Tài khoản này chưa được phân công cửa hàng đang hoạt động.');
+}
+$posAllowedStoreLookup = array_fill_keys($posAllowedStoreIds, true);
+$posDefaultStoreId = in_array($posAssignedStoreId, $posAllowedStoreIds, true)
+    ? $posAssignedStoreId : $posAllowedStoreIds[0];
+$cuahang_list = array_values(array_filter($posAllStores, static function ($store) use ($posAllowedStoreLookup) {
+    return isset($posAllowedStoreLookup[(int)$store['id']]);
+}));
+$posRegionalAssignments = array_intersect_key($posRegionalAssignments, $posAllowedStoreLookup);
+
+try {
+    $tenKhachColumn = $pdo->query("SHOW COLUMNS FROM hoadon LIKE 'ten_khach_nhap'")->fetch();
+    if (!$tenKhachColumn) {
+        $pdo->exec("ALTER TABLE hoadon ADD COLUMN ten_khach_nhap VARCHAR(100) NULL");
+    }
+} catch (PDOException $e) {
+    die('Không thể cập nhật cột tên khách hàng: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8'));
+}
+
+
+if (($_GET['pos_api'] ?? '') === 'promotions') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+    try {
+        $stmt = $pdo->prepare("SELECT km.id, km.cuahang_id, km.ten_km, km.ma_voucher, km.loai_km, km.gia_tri, ch.ten_cua_hang FROM khuyenmai km LEFT JOIN cuahang ch ON km.cuahang_id = ch.id WHERE km.thoi_gian_bat_dau <= ? AND km.thoi_gian_ket_thuc >= ? AND (km.so_luong IS NULL OR km.so_luong > 0) ORDER BY km.id DESC");
+        $promoNow = date('Y-m-d H:i:s');
+        $stmt->execute([$promoNow, $promoNow]);
+        $allPromos = [];
+        foreach ($stmt->fetchAll() as $km) {
+            $allPromos[] = [
+                'id' => (int)$km['id'],
+                'code' => (string)($km['ma_voucher'] ?? ''),
+                'name' => (string)$km['ten_km'],
+                'type' => (string)$km['loai_km'],
+                'value' => (float)$km['gia_tri'],
+                'store_id' => $km['cuahang_id'] === null ? 0 : (int)$km['cuahang_id'],
+                'store_name' => $km['cuahang_id'] === null ? 'Toàn hệ thống' : (string)($km['ten_cua_hang'] ?? 'Cửa hàng'),
+                'status' => 'active'
+            ];
+        }
+        echo json_encode(['success' => true, 'promotions' => $allPromos], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
+function cancelActivePosOrder(PDO $pdo, int $orderId): void {
+    if ($orderId <= 0) return;
+    $stmtOrder = $pdo->prepare("SELECT id, cuahang_id, trang_thai FROM hoadon WHERE id = ? FOR UPDATE");
+    $stmtOrder->execute([$orderId]);
+    $activeOrder = $stmtOrder->fetch();
+    if (!$activeOrder || $activeOrder['trang_thai'] !== 'Chờ thanh toán') return;
+    $stmtItems = $pdo->prepare("SELECT sanpham_id, so_luong FROM chitiethoadon WHERE hoadon_id = ?");
+    $stmtItems->execute([$orderId]);
+    $restoreStock = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong + ? WHERE sanpham_id = ? AND cuahang_id = ?");
+    foreach ($stmtItems->fetchAll() as $item) {
+        $restoreStock->execute([(int)$item['so_luong'], (int)$item['sanpham_id'], (int)$activeOrder['cuahang_id']]);
+    }
+    $stmtCancel = $pdo->prepare("UPDATE hoadon SET trang_thai = 'Đã hủy' WHERE id = ? AND trang_thai = 'Chờ thanh toán'");
+    $stmtCancel->execute([$orderId]);
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pos_action'] ?? '') === 'cancel_cart_pending') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $pdo->beginTransaction();
+        cancelActivePosOrder($pdo, (int)($_SESSION['ck_pos_active_order_id'] ?? 0));
+        $pdo->commit();
+        unset($_SESSION['ck_pos_active_order_id']);
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pos_action'] ?? '') === 'sync_cart_pending') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+    try {
+        $orderId = (int)($_POST['order_id'] ?? 0);
+        $sessionOrderId = (int)($_SESSION['ck_pos_active_order_id'] ?? 0);
+        if ($orderId <= 0 || $orderId !== $sessionOrderId) {
+            echo json_encode(['success' => true, 'active' => false], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $newCart = json_decode($_POST['cart'] ?? '[]', true);
+        if (!is_array($newCart)) throw new RuntimeException('Dữ liệu giỏ hàng không hợp lệ.');
+        $newItems = [];
+        foreach ($newCart as $item) {
+            if (!is_array($item)) throw new RuntimeException('Sản phẩm không hợp lệ.');
+            $id = (int)($item['id'] ?? 0);
+            $qty = (int)($item['qty'] ?? 0);
+            $price = (float)($item['price'] ?? 0);
+            if ($id <= 0 || $qty <= 0 || $qty > 1000 || !is_finite($price) || $price < 0) {
+                throw new RuntimeException('Số lượng hoặc đơn giá sản phẩm không hợp lệ.');
+            }
+            if (!isset($newItems[$id])) {
+                $newItems[$id] = ['qty' => 0, 'price' => $price];
+            }
+            $newItems[$id]['qty'] += $qty;
+            $newItems[$id]['price'] = $price;
+        }
+        ksort($newItems, SORT_NUMERIC);
+        $pdo->beginTransaction();
+        $stmtOrder = $pdo->prepare("SELECT id, cuahang_id, nhanvien_id, trang_thai FROM hoadon WHERE id = ? FOR UPDATE");
+        $stmtOrder->execute([$orderId]);
+        $order = $stmtOrder->fetch();
+        if (!$order || $order['trang_thai'] !== 'Chờ thanh toán' || (int)$order['nhanvien_id'] !== $posStaffId) {
+            $pdo->commit();
+            unset($_SESSION['ck_pos_active_order_id']);
+            echo json_encode(['success' => true, 'active' => false], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $storeId = $posCanSwitchStore ? (int)($_POST['cuahang_id'] ?? $posDefaultStoreId) : $posAssignedStoreId;
+        if (!isset($posAllowedStoreLookup[$storeId])) {
+            throw new RuntimeException('Bạn không được phép bán hàng tại chi nhánh này.');
+        }
+        if (!$newItems || $storeId !== (int)$order['cuahang_id']) {
+            cancelActivePosOrder($pdo, $orderId);
+            $pdo->commit();
+            unset($_SESSION['ck_pos_active_order_id']);
+            echo json_encode(['success' => true, 'active' => false], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $oldItemsStmt = $pdo->prepare("SELECT sanpham_id, so_luong FROM chitiethoadon WHERE hoadon_id = ?");
+        $oldItemsStmt->execute([$orderId]);
+        $oldItems = [];
+        foreach ($oldItemsStmt->fetchAll() as $old) {
+            $oldId = (int)$old['sanpham_id'];
+            $oldItems[$oldId] = ($oldItems[$oldId] ?? 0) + (int)$old['so_luong'];
+        }
+        $allIds = array_unique(array_merge(array_keys($oldItems), array_keys($newItems)));
+        sort($allIds, SORT_NUMERIC);
+        $takeStock = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong - ? WHERE sanpham_id = ? AND cuahang_id = ? AND so_luong >= ?");
+        $restoreStock = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong + ? WHERE sanpham_id = ? AND cuahang_id = ?");
+        $verifyProduct = $pdo->prepare("SELECT id FROM sanpham WHERE id = ? AND trang_thai = 1 LIMIT 1");
+        foreach ($allIds as $productId) {
+            $newQty = (int)($newItems[$productId]['qty'] ?? 0);
+            $oldQty = (int)($oldItems[$productId] ?? 0);
+            if ($newQty > 0) {
+                $verifyProduct->execute([$productId]);
+                if (!$verifyProduct->fetchColumn()) throw new RuntimeException('Sản phẩm đã ngừng bán.');
+            }
+            $difference = $newQty - $oldQty;
+            if ($difference > 0) {
+                $takeStock->execute([$difference, $productId, $storeId, $difference]);
+                if ($takeStock->rowCount() !== 1) throw new RuntimeException('Số lượng tồn kho không đủ cho sản phẩm đã chọn.');
+            } elseif ($difference < 0) {
+                $restoreStock->execute([-$difference, $productId, $storeId]);
+            }
+        }
+        $promoId = !empty($_POST['khuyenmai_id']) ? (int)$_POST['khuyenmai_id'] : null;
+        if ($promoId !== null) {
+            $promoStmt = $pdo->prepare("SELECT id FROM khuyenmai WHERE id = ? AND (cuahang_id IS NULL OR cuahang_id = ?) AND thoi_gian_bat_dau <= NOW() AND thoi_gian_ket_thuc >= NOW() AND (so_luong IS NULL OR so_luong > 0)");
+            $promoStmt->execute([$promoId, $storeId]);
+            if (!$promoStmt->fetchColumn()) throw new RuntimeException('Mã khuyến mãi không còn hợp lệ.');
+        }
+        $customerId = !empty($_POST['khachhang_id']) ? (int)$_POST['khachhang_id'] : null;
+        $manualName = $customerId === null ? mb_substr(trim((string)($_POST['ten_khach_nhap'] ?? '')), 0, 100, 'UTF-8') : '';
+        $subtotal = 0;
+        foreach ($newItems as $line) $subtotal += $line['qty'] * $line['price'];
+        $discount = max(0, min($subtotal, (float)($_POST['tien_giam_gia'] ?? 0)));
+        $total = $subtotal - $discount + round(($subtotal - $discount) * 0.08);
+        $pdo->prepare("DELETE FROM chitiethoadon WHERE hoadon_id = ?")->execute([$orderId]);
+        $addItem = $pdo->prepare("INSERT INTO chitiethoadon (hoadon_id, sanpham_id, so_luong, don_gia, thanh_tien) VALUES (?, ?, ?, ?, ?)");
+        foreach ($newItems as $productId => $line) {
+            $addItem->execute([$orderId, $productId, $line['qty'], $line['price'], $line['qty'] * $line['price']]);
+        }
+        $updateOrder = $pdo->prepare("UPDATE hoadon SET khachhang_id = ?, ten_khach_nhap = ?, khuyenmai_id = ?, tong_tien = ?, tien_giam_gia = ?, khach_phai_tra = ? WHERE id = ? AND trang_thai = 'Chờ thanh toán'");
+        $updateOrder->execute([$customerId, $manualName !== '' ? $manualName : null, $promoId, $subtotal, $discount, $total, $orderId]);
+        $pdo->commit();
+        echo json_encode(['success' => true, 'active' => true, 'hoadon_id' => $orderId], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_POST['pos_action'] === 'create_order_pending') {
     header('Content-Type: application/json; charset=utf-8');
     try {
         $cart           = json_decode($_POST['cart'] ?? '[]', true);
-        $cuahang_id     = (int)($_POST['cuahang_id'] ?? 1);
-        $nhanvien_id    = (int)($_POST['nhanvien_id'] ?? 1);
+        $cuahang_id     = $posCanSwitchStore ? (int)($_POST['cuahang_id'] ?? $posDefaultStoreId) : $posAssignedStoreId;
+        if (!isset($posAllowedStoreLookup[$cuahang_id])) {
+            echo json_encode(['success' => false, 'message' => 'Bạn không được phép bán hàng tại chi nhánh này.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $nhanvien_id    = $posStaffId;
+        $verifyStore = $pdo->prepare("SELECT id FROM cuahang WHERE id = ? AND trang_thai = 1 LIMIT 1");
+        $verifyStore->execute([$cuahang_id]);
+        if (!$verifyStore->fetchColumn()) {
+            echo json_encode(['success' => false, 'message' => 'Chi nhánh bán hàng không hợp lệ.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         $khachhang_id   = !empty($_POST['khachhang_id']) ? (int)$_POST['khachhang_id'] : null;
+        $ten_khach_nhap = mb_substr(trim((string)($_POST['ten_khach_nhap'] ?? '')), 0, 100, 'UTF-8');
+        if ($khachhang_id !== null) $ten_khach_nhap = '';
         $khuyenmai_id   = !empty($_POST['khuyenmai_id']) ? (int)$_POST['khuyenmai_id'] : null;
         $tong_tien      = (float)($_POST['tong_tien'] ?? 0);
         $tien_giam_gia  = (float)($_POST['tien_giam_gia'] ?? 0);
@@ -86,8 +294,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
             $promoNow = date('Y-m-d H:i:s');
             $stmtPromo->execute([$khuyenmai_id, $promoNow, $promoNow]);
             $promo = $stmtPromo->fetch();
-            $storeCodeIds = $pdo->query("SELECT ma_cua_hang, id FROM cuahang")->fetchAll(PDO::FETCH_KEY_PAIR);
-            $promoStoreId = $promo ? resolvePosVoucherStoreId($promo, $storeCodeIds, $posVoucherStoreCodes) : -1;
+            $promoStoreId = $promo ? ($promo['cuahang_id'] === null ? 0 : (int)$promo['cuahang_id']) : -1;
             if (!$promo || ($promoStoreId !== 0 && $promoStoreId !== $cuahang_id)) {
                 echo json_encode(['success' => false, 'message' => 'Mã khuyến mãi không áp dụng cho cửa hàng này hoặc đã hết hiệu lực.']);
                 exit;
@@ -95,9 +302,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
         }
 
         $pdo->beginTransaction();
+        cancelActivePosOrder($pdo, (int)($_SESSION['ck_pos_active_order_id'] ?? 0));
         
-        $stmtHd = $pdo->prepare("INSERT INTO hoadon (cuahang_id, nhanvien_id, khachhang_id, khuyenmai_id, ngay_tao, tong_tien, tien_giam_gia, khach_phai_tra, trang_thai) VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, 'Chờ thanh toán')");
-        $stmtHd->execute([$cuahang_id, $nhanvien_id, $khachhang_id, $khuyenmai_id, $tong_tien, $tien_giam_gia, $khach_phai_tra]);
+        $stmtHd = $pdo->prepare("INSERT INTO hoadon (cuahang_id, nhanvien_id, khachhang_id, ten_khach_nhap, khuyenmai_id, ngay_tao, tong_tien, tien_giam_gia, khach_phai_tra, trang_thai) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?, 'Chờ thanh toán')");
+        $stmtHd->execute([$cuahang_id, $nhanvien_id, $khachhang_id, $ten_khach_nhap !== '' ? $ten_khach_nhap : null, $khuyenmai_id, $tong_tien, $tien_giam_gia, $khach_phai_tra]);
         $hoadon_id = (int)$pdo->lastInsertId();
 
         $stmtCt = $pdo->prepare("INSERT INTO chitiethoadon (hoadon_id, sanpham_id, so_luong, don_gia, thanh_tien) VALUES (?, ?, ?, ?, ?)");
@@ -109,6 +317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
         }
         
         $pdo->commit();
+        $_SESSION['ck_pos_active_order_id'] = $hoadon_id;
         echo json_encode(['success' => true, 'hoadon_id' => $hoadon_id]); 
         exit;
     } catch (Exception $e) {
@@ -119,73 +328,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
 }
 
 $sanpham_list = $pdo->query("SELECT sp.*, dm.ten_danh_muc FROM sanpham sp LEFT JOIN danhmuc dm ON sp.danhmuc_id = dm.id WHERE sp.trang_thai = 1 ORDER BY sp.id ASC")->fetchAll();
-$cuahang_list = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
-$posStoreCodeIds = array_column($cuahang_list, 'id', 'ma_cua_hang');
-$posStoreNames = array_column($cuahang_list, 'ten_cua_hang', 'id');
-$all_nv = $pdo->query("SELECT id, ho_ten, cuahang_id FROM nhanvien ORDER BY id ASC")->fetchAll();
-
-$mgr_nam   = null;
-$mgr_phu   = null;
-$mgr_thai  = null;
-$branch_staff = [];
-
-foreach ($all_nv as $nv) {
-    $id = (int)$nv['id'];
-    $name = trim($nv['ho_ten']);
-    $lower = mb_strtolower($name, 'UTF-8');
-
-    if ($id === 1 || (strpos($lower, 'khoa') !== false && (strpos($lower, 'đăng khoa') !== false || strpos($lower, 'nguyễn hoàng') !== false))) {
-        continue;
-    }
-
-    if ($id === 3 || strpos($lower, 'nguyễn phương nam') !== false || strpos($lower, 'phương nam') !== false) {
-        $mgr_nam = ['id' => $nv['id'], 'ho_ten' => 'Nguyễn Phương Nam [Quản lý]'];
-        continue;
-    }
-    if ($id === 2 || strpos($lower, 'nguyễn dương bảo phú') !== false || ($id <= 4 && strpos($lower, 'bảo phú') !== false)) {
-        $mgr_phu = ['id' => $nv['id'], 'ho_ten' => 'Nguyễn Dương Bảo Phú [Quản lý]'];
-        continue;
-    }
-    if ($id === 4 || strpos($lower, 'đoàn anh thái') !== false || ($id <= 4 && strpos($lower, 'thái') !== false)) {
-        $mgr_thai = ['id' => $nv['id'], 'ho_ten' => 'Đoàn Anh Thái [Quản lý]'];
-        continue;
-    }
-
-    $ch_id = (int)$nv['cuahang_id'];
-    $branch_staff[$ch_id][] = [
-        'id' => $nv['id'],
-        'ho_ten' => $name
-    ];
-}
-
-if (!$mgr_nam)  $mgr_nam  = ['id' => 3, 'ho_ten' => 'Nguyễn Phương Nam [Quản lý]'];
-if (!$mgr_phu)  $mgr_phu  = ['id' => 2, 'ho_ten' => 'Nguyễn Dương Bảo Phú [Quản lý]'];
-if (!$mgr_thai) $mgr_thai = ['id' => 4, 'ho_ten' => 'Đoàn Anh Thái [Quản lý]'];
-
-$managers_list = [$mgr_nam, $mgr_phu, $mgr_thai];
-$branch_staff_map = [];
-
-foreach ($cuahang_list as $index => $ch) {
-    $ch_id = (int)$ch['id'];
-    $list = [];
-    if (!empty($managers_list)) {
-        $list[] = $managers_list[$index % count($managers_list)];
-    }
-    if (!empty($branch_staff[$ch_id])) {
-        foreach ($branch_staff[$ch_id] as $st) {
-            $list[] = $st;
-        }
-    }
-    $branch_staff_map[$ch_id] = $list;
-}
 
 $khachhang_list = $pdo->query("SELECT kh.*, ttd.hang_the, ttd.ti_le_giam_gia FROM khachhang kh LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id ORDER BY kh.id ASC")->fetchAll();
-$khuyenmai_list = $pdo->query("SELECT id, cuahang_id, ten_km, ma_voucher, loai_km, gia_tri, so_luong, thoi_gian_bat_dau, thoi_gian_ket_thuc FROM khuyenmai ORDER BY id ASC")->fetchAll();
+$stmtAvailablePromos = $pdo->prepare("SELECT id, cuahang_id, ten_km, ma_voucher, loai_km, gia_tri FROM khuyenmai WHERE thoi_gian_bat_dau <= ? AND thoi_gian_ket_thuc >= ? AND (so_luong IS NULL OR so_luong > 0) ORDER BY id ASC");
+$nowPos = date('Y-m-d H:i:s');
+$stmtAvailablePromos->execute([$nowPos, $nowPos]);
+$khuyenmai_list = $stmtAvailablePromos->fetchAll();
 foreach ($khuyenmai_list as &$km) {
-    $km['pos_store_id'] = resolvePosVoucherStoreId($km, $posStoreCodeIds, $posVoucherStoreCodes);
+    $km['pos_store_id'] = $km['cuahang_id'] === null ? 0 : (int)$km['cuahang_id'];
 }
 unset($km);
-$now = date('Y-m-d H:i:s');
 
 $nextId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) + 1 FROM hoadon")->fetchColumn();
 $nextHdCode = '#HD' . (1024 + $nextId);
@@ -248,6 +400,14 @@ require ROOT_PATH . '/includes/header.php';
     .tier-vang { background: #f59e0b; color: #fff; }
     .tier-kimcuong { background: #06b6d4; color: #fff; }
     .tier-none { background: #e2e8f0; color: #475569; }
+    .pos-customer-search { position: relative; z-index: 15; }
+    .pos-customer-suggestions { position: absolute; z-index: 100; top: calc(100% + 5px); left: 0; right: 0; max-height: 245px; overflow-y: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 14px 35px rgba(15,23,42,.16); padding: 5px; }
+    .pos-customer-suggestions[hidden] { display: none !important; }
+    .pos-customer-suggestion { width: 100%; background: #fff; border: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; border-radius: 8px; text-align: left; cursor: pointer; color: #1e293b; }
+    .pos-customer-suggestion:hover, .pos-customer-suggestion.is-active { background: #eff6ff; }
+    .pos-customer-suggestion-name { font-weight: 700; font-size: .9rem; }
+    .pos-customer-suggestion-detail { font-size: .8rem; color: #64748b; }
+    .pos-customer-no-result { padding: 12px; font-size: .85rem; color: #64748b; }
     
     .cart-item-anim { animation: slideInLeft 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
     @keyframes slideInLeft { 0% { opacity: 0; transform: translateX(-15px); } 100% { opacity: 1; transform: translateX(0); } }
@@ -311,8 +471,14 @@ require ROOT_PATH . '/includes/header.php';
                     <?php endforeach; ?>
                 </select>
 
-                <select class="form-select flex-shrink-0" id="posStaffSelect" style="width: auto; min-width: 220px; height: 44px; border-radius: 10px; font-weight: 500;">
+                <select class="form-select flex-shrink-0" id="posStaffSelect" style="width: auto; min-width: 220px; height: 44px; border-radius: 10px; font-weight: 500;" disabled>
+                    <option value="<?=$posStaffId?>">👤 <?=htmlspecialchars($posStaffLabel, ENT_QUOTES, 'UTF-8')?></option>
                 </select>
+
+                <div class="w-100 d-flex flex-wrap align-items-center gap-3" style="font-size: .8rem; color: #64748b; margin-top: -5px;">
+                    <span><i class="fa-solid fa-user-tie me-1"></i>Quản lý trưởng phụ trách: <strong id="posRegionalLeaderName" style="color: #334155;"></strong></span>
+                    <span><i class="fa-solid fa-store me-1"></i>Quản lý cửa hàng: <strong id="posBranchManagerName" style="color: #334155;"></strong></span>
+                </div>
             </div>
 
             <div class="prod-scroll-wrap" id="productScrollWrap">
@@ -369,17 +535,10 @@ require ROOT_PATH . '/includes/header.php';
             </div>
 
             <div class="p-3 bg-light border rounded-3 mb-3 flex-shrink-0">
-                <div class="input-group input-group-sm mb-2 shadow-sm">
+                <div class="input-group input-group-sm mb-2 shadow-sm pos-customer-search">
                     <span class="input-group-text bg-white border-end-0 text-muted"><i class="fa-solid fa-user-pen"></i></span>
-                    <input type="text" class="form-control border-start-0 fw-medium" id="posCustomerInput" placeholder="Nhập tên khách hàng..." list="customerSuggestList" autocomplete="off" oninput="handleCustomerInput()">
-                    <datalist id="customerSuggestList">
-                        <option value="Khách lẻ (Vãng lai)"></option>
-                        <?php foreach($khachhang_list as $kh): 
-                            $tag = !empty($kh['hang_the']) ? '[' . $kh['hang_the'] . ']' : '[Bạc]';
-                        ?>
-                            <option value="<?= htmlspecialchars($kh['ho_ten']) ?>"><?= $tag ?> - SĐT: <?= htmlspecialchars($kh['so_dien_thoai'] ?? '') ?></option>
-                        <?php endforeach; ?>
-                    </datalist>
+                    <input type="text" class="form-control border-start-0 fw-medium" id="posCustomerInput" placeholder="Nhập tên khách hàng..." autocomplete="off" aria-autocomplete="list" aria-controls="posCustomerSuggestions" aria-expanded="false" oninput="handleCustomerInput()">
+                    <div id="posCustomerSuggestions" class="pos-customer-suggestions" role="listbox" aria-label="Gợi ý tên khách hàng" hidden></div>
                 </div>
 
                 <div class="d-flex align-items-center gap-2 mb-2">
@@ -391,7 +550,8 @@ require ROOT_PATH . '/includes/header.php';
                             $badgeLabel = '[' . $tier . ']';
                         ?>
                             <option value="<?=$kh['id']?>" 
-                                    data-name="<?=htmlspecialchars($kh['ho_ten'])?>" 
+                                    data-name="<?=htmlspecialchars($kh['ho_ten'], ENT_QUOTES, 'UTF-8')?>" 
+                                    data-phone="<?=htmlspecialchars($kh['so_dien_thoai'] ?? '', ENT_QUOTES, 'UTF-8')?>"
                                     data-disc="<?=$disc?>" 
                                     data-tier="<?=htmlspecialchars($tier)?>">
                                 <?= $badgeLabel ?> <?= htmlspecialchars($kh['ho_ten']) ?>
@@ -404,11 +564,8 @@ require ROOT_PATH . '/includes/header.php';
                 <select class="form-select form-select-sm border-0 text-danger fw-bold shadow-sm" id="posPromoSelect" onchange="onPromoSelectChange()" style="height: 36px;">
                     <option value="" data-val="0" data-type="">-- Áp dụng Voucher / Khuyến mãi --</option>
                     <?php foreach ($khuyenmai_list as $km):
-                        $isUpcoming = $km['thoi_gian_bat_dau'] > $now;
-                        $isExpired = $km['thoi_gian_ket_thuc'] < $now || ($km['so_luong'] !== null && (int)$km['so_luong'] <= 0);
-                        $promoStatus = $isExpired ? ' (Đã hết hạn / hết lượt)' : ($isUpcoming ? ' (Sắp diễn ra)' : '');
                     ?>
-                    <option value="<?=(int)$km['id']?>" data-code="<?=htmlspecialchars($km['ma_voucher'] ?? '', ENT_QUOTES, 'UTF-8')?>" data-store="<?=(int)$km['pos_store_id']?>" data-store-name="<?=htmlspecialchars($posStoreNames[$km['pos_store_id']] ?? 'Toàn hệ thống', ENT_QUOTES, 'UTF-8')?>" data-status="<?=$isExpired ? 'expired' : ($isUpcoming ? 'upcoming' : 'active')?>" data-val="<?=(float)$km['gia_tri']?>" data-type="<?=htmlspecialchars($km['loai_km'], ENT_QUOTES, 'UTF-8')?>" <?=($isUpcoming || $isExpired) ? 'disabled' : ''?>>[<?=htmlspecialchars($km['ma_voucher'] ?? '', ENT_QUOTES, 'UTF-8')?>] <?=htmlspecialchars($km['ten_km'], ENT_QUOTES, 'UTF-8')?><?=$promoStatus?></option>
+                    <option value="<?=(int)$km['id']?>" data-code="<?=htmlspecialchars($km['ma_voucher'] ?? '', ENT_QUOTES, 'UTF-8')?>" data-store="<?=(int)$km['pos_store_id']?>" data-store-name="<?=htmlspecialchars($posStoreNames[$km['pos_store_id']] ?? 'Toàn hệ thống', ENT_QUOTES, 'UTF-8')?>" data-status="active" data-val="<?=(float)$km['gia_tri']?>" data-type="<?=htmlspecialchars($km['loai_km'], ENT_QUOTES, 'UTF-8')?>">[<?=htmlspecialchars($km['ma_voucher'] ?? '', ENT_QUOTES, 'UTF-8')?>] <?=htmlspecialchars($km['ten_km'], ENT_QUOTES, 'UTF-8')?></option>
                     <?php endforeach; ?>
                 </select>
                 <div class="input-group input-group-sm mt-2 shadow-sm" style="height: 36px;">
@@ -450,8 +607,40 @@ require ROOT_PATH . '/includes/header.php';
 </dialog>
 
 <script>
-    const branchStaffData = <?= json_encode($branch_staff_map, JSON_UNESCAPED_UNICODE) ?>;
-    const allPromoOptions = Array.from(document.querySelectorAll('#posPromoSelect option')).slice(1);
+    const posSignedInUserId = <?= (int)$_SESSION['user_id'] ?>;
+    let pendingActiveOrderId = <?= (int)($_SESSION['ck_pos_active_order_id'] ?? 0) ?>;
+    let pendingCartSync = Promise.resolve();
+    let pendingCartSyncTimer = null;
+    const posSignedInStaffId = <?= $posStaffId ?>;
+    const posSignedInStoreId = <?= $posAssignedStoreId ?>;
+    const posDefaultStoreId = <?= $posDefaultStoreId ?>;
+    const posCanSwitchStore = <?= $posCanSwitchStore ? 'true' : 'false' ?>;
+    const posRegionalAssignments = <?= json_encode($posRegionalAssignments, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    let allPromoOptions = Array.from(document.querySelectorAll('#posPromoSelect option')).slice(1);
+
+    async function refreshPosPromotions() {
+        try {
+            const response = await fetch(window.location.pathname + '?pos_api=promotions', { cache: 'no-store' });
+            const result = await response.json();
+            if (!result.success || !Array.isArray(result.promotions)) return;
+            allPromoOptions = result.promotions.map(p => {
+                const option = document.createElement('option');
+                option.value = String(p.id);
+                option.dataset.code = p.code || '';
+                option.dataset.store = String(p.store_id);
+                option.dataset.storeName = p.store_name || 'Toàn hệ thống';
+                option.dataset.status = p.status;
+                option.dataset.val = String(p.value);
+                option.dataset.type = p.type;
+                option.disabled = false;
+                option.textContent = '[' + (p.code || '') + '] ' + p.name;
+                return option;
+            });
+            updatePromoByBranch();
+        } catch (e) {
+        }
+    }
+
 
     function updatePromoByBranch() {
         const select = document.getElementById('posPromoSelect');
@@ -460,7 +649,7 @@ require ROOT_PATH . '/includes/header.php';
         select.length = 1;
         allPromoOptions.forEach(option => {
             const storeId = Number(option.dataset.store || 0);
-            if ((storeId === 0 || storeId === branchId) && option.dataset.status === 'active' && !option.disabled) select.appendChild(option);
+            if (option.dataset.status === 'active' && (storeId === 0 || storeId === branchId)) select.appendChild(option);
         });
         const validSelection = Array.from(select.options).find(option => option.value === previousPromo && !option.disabled);
         select.value = validSelection ? previousPromo : '';
@@ -469,6 +658,7 @@ require ROOT_PATH . '/includes/header.php';
         codeInput.value = validSelection ? (validSelection.dataset.code || '') : '';
         clearPromoFeedback();
         calcTotal();
+        markPendingCartChanged();
     }
 
 
@@ -520,6 +710,7 @@ require ROOT_PATH . '/includes/header.php';
         const select = document.getElementById('posPromoSelect');
         select.value = '';
         calcTotal();
+        markPendingCartChanged();
         if (!code) {
             showPromoFeedback('Vui lòng nhập mã voucher.', false);
             input.focus();
@@ -527,7 +718,7 @@ require ROOT_PATH . '/includes/header.php';
         }
         const option = allPromoOptions.find(item => (item.dataset.code || '').toUpperCase() === code);
         if (!option) {
-            showPromoFeedback('Không tìm thấy mã voucher ' + code + '.', false);
+            showPromoFeedback('Mã ' + code + ' không tồn tại, chưa có hiệu lực hoặc đã hết lượt sử dụng.', false);
             return;
         }
         const branchId = Number(document.getElementById('posStoreSelect').value);
@@ -554,26 +745,20 @@ require ROOT_PATH . '/includes/header.php';
         select.value = option.value;
         input.value = code;
         calcTotal();
+        markPendingCartChanged();
         showPromoFeedback('Đã áp dụng mã ' + code + ' thành công.', true);
     }
 
     function updateStaffByBranch() {
         const branchSelect = document.getElementById('posStoreSelect');
-        const staffSelect = document.getElementById('posStaffSelect');
-        const currentBranchId = branchSelect.value;
-        const staffList = branchStaffData[currentBranchId] || [];
-
-        staffSelect.innerHTML = '';
-        staffList.forEach(st => {
-            const opt = document.createElement('option');
-            opt.value = st.id;
-            opt.textContent = '👤 ' + st.ho_ten;
-            staffSelect.appendChild(opt);
-        });
-
-        localStorage.setItem('ck_pos_store', currentBranchId);
-        localStorage.setItem('ck_pos_staff', staffSelect.value);
+        if (!posCanSwitchStore) branchSelect.value = String(posDefaultStoreId);
+        const assignedManagers = posRegionalAssignments[branchSelect.value] || {};
+        document.getElementById('posRegionalLeaderName').textContent = assignedManagers.regional || 'Chưa phân công';
+        document.getElementById('posBranchManagerName').textContent = assignedManagers.branch || 'Chưa phân công';
+        localStorage.setItem('ck_pos_store', branchSelect.value);
+        localStorage.setItem('ck_pos_staff', String(posSignedInStaffId));
         updatePromoByBranch();
+        refreshPosPromotions();
     }
 
     const itemsPerPage = 16; 
@@ -688,8 +873,71 @@ require ROOT_PATH . '/includes/header.php';
     function saveState() {
         localStorage.setItem('ck_pos_cart', JSON.stringify(cart));
         localStorage.setItem('ck_pos_cus', document.getElementById('posCustomerSelect').value);
+        localStorage.setItem('ck_pos_customer_name', document.getElementById('posCustomerInput').value.trim());
         localStorage.setItem('ck_pos_promo', document.getElementById('posPromoSelect').value);
         localStorage.setItem('ck_pos_staff', document.getElementById('posStaffSelect').value);
+    }
+
+    function currentPendingOrderId() {
+        return pendingActiveOrderId || Number(localStorage.getItem('ck_pos_pending_order') || 0);
+    }
+
+    function createPendingOrderFormData(action) {
+        const fd = new FormData();
+        fd.append('pos_action', action);
+        fd.append('cart', JSON.stringify(cart));
+        fd.append('cuahang_id', document.getElementById('posStoreSelect').value);
+        const selectedCustomerId = document.getElementById('posCustomerSelect').value;
+        fd.append('khachhang_id', /^\d+$/.test(selectedCustomerId) ? selectedCustomerId : '');
+        fd.append('ten_khach_nhap', selectedCustomerId === '__manual__' ? document.getElementById('posCustomerInput').value.trim() : '');
+        fd.append('khuyenmai_id', document.getElementById('posPromoSelect').value);
+        fd.append('tong_tien', calc.s);
+        fd.append('tien_giam_gia', calc.d);
+        fd.append('khach_phai_tra', calc.t);
+        return fd;
+    }
+
+    function queuePendingCartSync() {
+        if (!currentPendingOrderId()) return pendingCartSync;
+        pendingCartSync = pendingCartSync.catch(() => {}).then(async () => {
+            const orderId = currentPendingOrderId();
+            if (!orderId) return;
+            const fd = createPendingOrderFormData('sync_cart_pending');
+            fd.append('order_id', String(orderId));
+            const response = await fetch(window.location.pathname, { method: 'POST', body: fd, keepalive: true, cache: 'no-store' });
+            if (!response.ok) throw new Error('Không thể kết nối máy chủ để đồng bộ đơn hàng.');
+            const result = await response.json();
+            if (!result.success) throw new Error(result.message || 'Không thể cập nhật đơn chờ thanh toán.');
+            if (!result.active) {
+                pendingActiveOrderId = 0;
+                localStorage.removeItem('ck_pos_pending_order');
+            } else {
+                pendingActiveOrderId = Number(result.hoadon_id);
+                localStorage.setItem('ck_pos_pending_order', String(result.hoadon_id));
+            }
+            localStorage.setItem('ck_pos_order_updated', String(Date.now()));
+        });
+        return pendingCartSync;
+    }
+
+    function markPendingCartChanged() {
+        if (!currentPendingOrderId()) return;
+        if (pendingCartSyncTimer !== null) clearTimeout(pendingCartSyncTimer);
+        pendingCartSyncTimer = setTimeout(() => {
+            pendingCartSyncTimer = null;
+            queuePendingCartSync().catch(error => {
+                console.error(error);
+            });
+        }, 120);
+    }
+
+    async function flushPendingCartSync() {
+        if (pendingCartSyncTimer !== null) {
+            clearTimeout(pendingCartSyncTimer);
+            pendingCartSyncTimer = null;
+            queuePendingCartSync();
+        }
+        await pendingCartSync;
     }
 
     function addToCart(id, name, price, sku) {
@@ -703,6 +951,7 @@ require ROOT_PATH . '/includes/header.php';
             cart.unshift({id, name, price, sku: sku, qty:1}); 
         }
         drawCart();
+        markPendingCartChanged();
         document.getElementById('cartBox').scrollTop = 0;
     }
 
@@ -714,7 +963,8 @@ require ROOT_PATH . '/includes/header.php';
             if(item.qty > 0) {
                 cart.unshift(item);
             }
-            drawCart(); 
+            drawCart();
+            markPendingCartChanged();
             document.getElementById('cartBox').scrollTop = 0;
         }
     }
@@ -801,34 +1051,116 @@ require ROOT_PATH . '/includes/header.php';
         }
     }
 
+    function removeManualCustomerOption() {
+        const option = document.getElementById('posManualCustomerOption');
+        if (option) option.remove();
+    }
+
+    let activeCustomerSuggestionIndex = -1;
+
+    function normalizeCustomerText(value) {
+        return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
+    }
+
+    function closeCustomerSuggestions() {
+        const dropdown = document.getElementById('posCustomerSuggestions');
+        dropdown.hidden = true;
+        dropdown.replaceChildren();
+        document.getElementById('posCustomerInput').setAttribute('aria-expanded', 'false');
+        activeCustomerSuggestionIndex = -1;
+    }
+
+    function chooseCustomerSuggestion(id) {
+        const select = document.getElementById('posCustomerSelect');
+        select.value = id;
+        handleCustomerSelect();
+        closeCustomerSuggestions();
+        markPendingCartChanged();
+    }
+
+    function updateCustomerSuggestions() {
+        const input = document.getElementById('posCustomerInput');
+        const dropdown = document.getElementById('posCustomerSuggestions');
+        const keyword = normalizeCustomerText(input.value);
+        if (!keyword || document.activeElement !== input) {
+            closeCustomerSuggestions();
+            return;
+        }
+        const matches = Array.from(document.getElementById('posCustomerSelect').options).filter(option => {
+            if (!/^\d+$/.test(option.value)) return false;
+            const name = normalizeCustomerText(option.dataset.name);
+            const phone = String(option.dataset.phone || '').trim();
+            return name.includes(keyword) || phone.includes(input.value.trim());
+        }).slice(0, 40);
+        dropdown.replaceChildren();
+        activeCustomerSuggestionIndex = -1;
+        if (!matches.length) {
+            const empty = document.createElement('div');
+            empty.className = 'pos-customer-no-result';
+            empty.textContent = 'Không tìm thấy khách hàng. Bạn có thể nhập tên mới.';
+            dropdown.appendChild(empty);
+        }
+        for (const option of matches) {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'pos-customer-suggestion';
+            item.setAttribute('role', 'option');
+            item.setAttribute('aria-selected', 'false');
+            const name = document.createElement('span');
+            name.className = 'pos-customer-suggestion-name';
+            name.textContent = option.dataset.name || '';
+            const detail = document.createElement('span');
+            detail.className = 'pos-customer-suggestion-detail';
+            detail.textContent = '[' + (option.dataset.tier || 'Bạc') + ']' + (option.dataset.phone ? ' - SĐT: ' + option.dataset.phone : '');
+            item.append(name, detail);
+            item.addEventListener('click', () => chooseCustomerSuggestion(option.value));
+            dropdown.appendChild(item);
+        }
+        dropdown.hidden = false;
+        input.setAttribute('aria-expanded', 'true');
+    }
+
     function handleCustomerSelect() {
         const sel = document.getElementById('posCustomerSelect');
         const opt = sel.options[sel.selectedIndex];
-        document.getElementById('posCustomerInput').value = opt.dataset.name || '';
+        if (!opt) return;
+        if (opt.value !== '__manual__') removeManualCustomerOption();
+        document.getElementById('posCustomerInput').value = opt.value ? (opt.dataset.name || '') : '';
         updateTierBadge(opt.dataset.tier || '');
         calcTotal();
+        closeCustomerSuggestions();
     }
 
     function handleCustomerInput() {
-        const val = document.getElementById('posCustomerInput').value.toLowerCase().trim();
+        const rawName = document.getElementById('posCustomerInput').value.trim();
+        const normalizedName = rawName.toLocaleLowerCase('vi');
         const sel = document.getElementById('posCustomerSelect');
-        let matched = false;
-
-        for (let i = 0; i < sel.options.length; i++) {
-            const opt = sel.options[i];
-            const name = (opt.dataset.name || '').toLowerCase();
-            if (val !== '' && name.includes(val)) {
-                sel.selectedIndex = i;
-                updateTierBadge(opt.dataset.tier || '');
-                matched = true;
-                break;
+        const registered = Array.from(sel.options).find(opt => opt.value !== '' && opt.value !== '__manual__' && (opt.dataset.name || '').trim().toLocaleLowerCase('vi') === normalizedName);
+        if (rawName && registered) {
+            removeManualCustomerOption();
+            sel.value = registered.value;
+            updateTierBadge(registered.dataset.tier || '');
+        } else if (rawName) {
+            let manual = document.getElementById('posManualCustomerOption');
+            if (!manual) {
+                manual = document.createElement('option');
+                manual.id = 'posManualCustomerOption';
+                manual.value = '__manual__';
+                manual.dataset.disc = '0';
+                manual.dataset.tier = 'none';
+                sel.add(manual, 1);
             }
-        }
-        if (!matched) {
-            sel.selectedIndex = 0;
+            manual.dataset.name = rawName;
+            manual.textContent = 'Khách tự nhập: ' + rawName;
+            sel.value = '__manual__';
+            updateTierBadge('none');
+        } else {
+            removeManualCustomerOption();
+            sel.value = '';
             updateTierBadge('none');
         }
         calcTotal();
+        updateCustomerSuggestions();
     }
 
     const headerSearch = document.querySelector('header input[type="text"], input[placeholder*="Tìm"]');
@@ -851,39 +1183,67 @@ require ROOT_PATH . '/includes/header.php';
         } 
     });
 
-    function goToCheckout() {
-        if (cart.length === 0) return alert('Vui lòng quét hoặc chọn ít nhất 1 sản phẩm để thanh toán!');
+    async function goToCheckout(targetHref = '../thanh_toan_don_hang/index.php') {
+        if (cart.length === 0) {
+            openPosNotice({
+                title: 'Giỏ hàng trống',
+                message: 'Vui lòng quét hoặc chọn ít nhất 1 sản phẩm để thanh toán!',
+                mode: 'info',
+                confirmText: 'Đã hiểu'
+            });
+            return;
+        }
         const btn = document.getElementById('btnGoCheckout');
+        if (btn.disabled) return;
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang chốt đơn...';
+        try {
+            await flushPendingCartSync();
+            if (cart.length === 0) throw new Error('Giỏ hàng trống.');
+            let orderId = currentPendingOrderId();
+            if (!orderId) {
+                const fd = createPendingOrderFormData('create_order_pending');
+                const response = await fetch(window.location.pathname, { method: 'POST', body: fd, cache: 'no-store' });
+                if (!response.ok) throw new Error('Không thể kết nối máy chủ.');
+                const result = await response.json();
+                if (!result.success) throw new Error(result.message || 'Không thể tạo đơn hàng.');
+                orderId = Number(result.hoadon_id);
+                pendingActiveOrderId = orderId;
+                localStorage.setItem('ck_pos_pending_order', String(orderId));
+            }
+            window.location.assign(targetHref.split('?')[0] + '?id=' + orderId);
+        } catch (error) {
+            alert('Lỗi: ' + error.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
+        }
+    }
 
+    async function clearPendingPosOrder() {
+        if (pendingCartSyncTimer !== null) { clearTimeout(pendingCartSyncTimer); pendingCartSyncTimer = null; }
+        await pendingCartSync.catch(() => {});
         const fd = new FormData();
-        fd.append('pos_action', 'create_order_pending');
-        fd.append('cart', JSON.stringify(cart));
-        fd.append('cuahang_id', document.getElementById('posStoreSelect').value);
-        fd.append('nhanvien_id', document.getElementById('posStaffSelect').value);
-        fd.append('khachhang_id', document.getElementById('posCustomerSelect').value);
-        fd.append('khuyenmai_id', document.getElementById('posPromoSelect').value);
-        fd.append('tong_tien', calc.s);
-        fd.append('tien_giam_gia', calc.d);
-        fd.append('khach_phai_tra', calc.t);
-
-        fetch(window.location.href, { method: 'POST', body: fd })
-            .then(r => r.json())
-            .then(d => {
-                if (d.success) {
-                    window.location.replace('../thanh_toan_don_hang/index.php?id=' + d.hoadon_id);
-                } else {
-                    alert('Lỗi: ' + d.message);
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
-                }
-            })
-            .catch(err => {
-                alert('Lỗi kết nối máy chủ: ' + err);
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
-            });
+        fd.append('pos_action', 'cancel_cart_pending');
+        const response = await fetch(window.location.pathname, { method: 'POST', body: fd });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Không thể hủy đơn hàng.');
+        pendingActiveOrderId = 0;
+        localStorage.removeItem('ck_pos_pending_order');
+        localStorage.setItem('ck_pos_order_updated', String(Date.now()));
+        localStorage.setItem('ck_pos_cart_cleared', String(Date.now()));
+        cart = [];
+        document.getElementById('posCustomerInput').value = '';
+        removeManualCustomerOption();
+        document.getElementById('posCustomerSelect').selectedIndex = 0;
+        updateTierBadge('none');
+        document.getElementById('posPromoSelect').selectedIndex = 0;
+        document.getElementById('posPromoCodeInput').value = '';
+        clearPromoFeedback();
+        localStorage.removeItem('ck_pos_cart');
+        localStorage.removeItem('ck_pos_cus');
+        localStorage.removeItem('ck_pos_customer_name');
+        localStorage.removeItem('ck_pos_promo');
+        drawCart();
     }
 
     function clearCartConfirm() {
@@ -893,55 +1253,61 @@ require ROOT_PATH . '/includes/header.php';
             mode: 'danger',
             confirmText: 'Xóa giỏ hàng',
             cancelText: 'Giữ giỏ hàng',
-            onConfirm: () => {
-                cart = [];
-                document.getElementById('posCustomerInput').value = '';
-                document.getElementById('posCustomerSelect').selectedIndex = 0;
-                updateTierBadge('none');
-                document.getElementById('posPromoSelect').selectedIndex = 0;
-                document.getElementById('posPromoCodeInput').value = '';
-                clearPromoFeedback();
-                localStorage.removeItem('ck_pos_cart');
-                localStorage.removeItem('ck_pos_cus');
-                localStorage.removeItem('ck_pos_promo');
-                drawCart();
+            onConfirm: async () => {
+                try {
+                    await clearPendingPosOrder();
+                } catch (err) {
+                    alert('Lỗi: ' + err.message);
+                }
             }
         });
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        const previousUser = localStorage.getItem('ck_pos_last_user_id');
+        if (previousUser !== String(posSignedInUserId)) {
+            ['ck_pos_cart', 'ck_pos_cus', 'ck_pos_customer_name', 'ck_pos_promo', 'ck_pos_staff', 'ck_pos_pending_order', 'ck_pos_store'].forEach(key => localStorage.removeItem(key));
+            localStorage.setItem('ck_pos_last_user_id', String(posSignedInUserId));
+            cart = [];
+        }
+        let savedCustomer = localStorage.getItem('ck_pos_cus') || '';
+        let savedCustomerName = localStorage.getItem('ck_pos_customer_name') || '';
+        let savedPromo = localStorage.getItem('ck_pos_promo') || '';
         const urlParams = new URLSearchParams(window.location.search);
         if(urlParams.has('clear') || urlParams.has('clear_cart')) {
+            savedCustomer = '';
+            savedCustomerName = '';
+            savedPromo = '';
             cart = [];
             localStorage.removeItem('ck_pos_cart');
             localStorage.removeItem('ck_pos_cus');
+            localStorage.removeItem('ck_pos_customer_name');
             localStorage.removeItem('ck_pos_promo');
+            localStorage.removeItem('ck_pos_pending_order');
+            localStorage.setItem('ck_pos_cart_cleared', String(Date.now()));
             window.history.replaceState({}, document.title, window.location.pathname);
         } else {
             cart = JSON.parse(localStorage.getItem('ck_pos_cart')) || [];
         }
 
         const savedStore = localStorage.getItem('ck_pos_store');
-        if(savedStore) {
-            document.getElementById('posStoreSelect').value = savedStore;
+        const storeSelect = document.getElementById('posStoreSelect');
+        if (posCanSwitchStore && savedStore && Array.from(storeSelect.options).some(option => option.value === savedStore)) {
+            storeSelect.value = savedStore;
+        } else {
+            storeSelect.value = String(posDefaultStoreId);
         }
         updateStaffByBranch();
 
-        const savedStaff = localStorage.getItem('ck_pos_staff');
-        if(savedStaff) {
-            document.getElementById('posStaffSelect').value = savedStaff;
-        }
-
-        document.getElementById('posStaffSelect').addEventListener('change', function() {
-            localStorage.setItem('ck_pos_staff', this.value);
-        });
-
-        const savedCus = localStorage.getItem('ck_pos_cus');
-        const savedPromo = localStorage.getItem('ck_pos_promo');
-        
-        if(savedCus) {
-            document.getElementById('posCustomerSelect').value = savedCus;
+        if (savedCustomer === '__manual__' && savedCustomerName) {
+            document.getElementById('posCustomerInput').value = savedCustomerName;
+            handleCustomerInput();
+        } else if (savedCustomer && Array.from(document.getElementById('posCustomerSelect').options).some(opt => opt.value === savedCustomer)) {
+            document.getElementById('posCustomerSelect').value = savedCustomer;
             handleCustomerSelect();
+        } else if (savedCustomerName) {
+            document.getElementById('posCustomerInput').value = savedCustomerName;
+            handleCustomerInput();
         }
         if(savedPromo) {
             const select = document.getElementById('posPromoSelect');
@@ -951,6 +1317,46 @@ require ROOT_PATH . '/includes/header.php';
         }
         drawCart();
         triggerSearch('', false);
+        window.addEventListener('focus', refreshPosPromotions);
+        ['posCustomerSelect', 'posPromoSelect', 'posStoreSelect'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => {
+                calcTotal();
+                markPendingCartChanged();
+            });
+        });
+        const customerInputEl = document.getElementById('posCustomerInput');
+        const customerSuggestionsEl = document.getElementById('posCustomerSuggestions');
+        customerInputEl.addEventListener('input', markPendingCartChanged);
+        customerInputEl.addEventListener('focus', updateCustomerSuggestions);
+        customerInputEl.addEventListener('keydown', event => {
+            const buttons = Array.from(customerSuggestionsEl.querySelectorAll('.pos-customer-suggestion'));
+            if (customerSuggestionsEl.hidden || !buttons.length) {
+                if (event.key === 'Escape') closeCustomerSuggestions();
+                return;
+            }
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                activeCustomerSuggestionIndex = event.key === 'ArrowDown'
+                    ? (activeCustomerSuggestionIndex + 1) % buttons.length
+                    : (activeCustomerSuggestionIndex + buttons.length - 1) % buttons.length;
+                buttons.forEach((button, index) => {
+                    button.classList.toggle('is-active', index === activeCustomerSuggestionIndex);
+                    button.setAttribute('aria-selected', String(index === activeCustomerSuggestionIndex));
+                });
+                buttons[activeCustomerSuggestionIndex].scrollIntoView({block: 'nearest'});
+            } else if (event.key === 'Enter' && activeCustomerSuggestionIndex >= 0) {
+                event.preventDefault();
+                buttons[activeCustomerSuggestionIndex].click();
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                closeCustomerSuggestions();
+            }
+        });
+        document.addEventListener('pointerdown', event => {
+            if (!event.target.closest('.pos-customer-search')) closeCustomerSuggestions();
+        });
+        markPendingCartChanged();
+
 
         function initSidebarScroll() {
             const viewport = document.querySelector('.os-viewport') || document.querySelector('.sidebar');
@@ -1007,33 +1413,27 @@ require ROOT_PATH . '/includes/header.php';
                 link.addEventListener('click', function(e) {
                     if (cart.length > 0) {
                         e.preventDefault();
-                        const btn = document.getElementById('btnGoCheckout');
-                        if(btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang chốt đơn...';
-                        
-                        const fd = new FormData();
-                        fd.append('pos_action', 'create_order_pending');
-                        fd.append('cart', JSON.stringify(cart));
-                        fd.append('cuahang_id', document.getElementById('posStoreSelect').value);
-                        fd.append('nhanvien_id', document.getElementById('posStaffSelect').value);
-                        fd.append('khachhang_id', document.getElementById('posCustomerSelect').value);
-                        fd.append('khuyenmai_id', document.getElementById('posPromoSelect').value);
-                        fd.append('tong_tien', calc.s);
-                        fd.append('tien_giam_gia', calc.d);
-                        fd.append('khach_phai_tra', calc.t);
-
-                        fetch(window.location.href, { method: 'POST', body: fd })
-                            .then(r => r.json())
-                            .then(d => {
-                                if (d.success) {
-                                    window.location.replace(link.href.split('?')[0] + '?id=' + d.hoadon_id);
-                                } else {
-                                    window.location.href = link.href;
-                                }
-                            }).catch(() => {
-                                window.location.href = link.href;
-                            });
+                        goToCheckout(link.href.split('?')[0]);
+                    } else if (currentPendingOrderId() || pendingCartSyncTimer !== null) {
+                        e.preventDefault();
+                        flushPendingCartSync().then(() => {
+                            window.location.assign(link.href.split('?')[0]);
+                        }).catch(error => alert('Lỗi đồng bộ giỏ hàng: ' + error.message));
                     }
                 });
+            }
+        });
+        window.addEventListener('storage', event => {
+            if (event.key === 'ck_pos_cart_cleared' && cart.length > 0) {
+                cart = [];
+                removeManualCustomerOption();
+                document.getElementById('posCustomerSelect').selectedIndex = 0;
+                document.getElementById('posPromoSelect').selectedIndex = 0;
+                document.getElementById('posCustomerInput').value = '';
+                localStorage.removeItem('ck_pos_customer_name');
+                document.getElementById('posPromoCodeInput').value = '';
+                updateTierBadge('none');
+                drawCart();
             }
         });
     });
