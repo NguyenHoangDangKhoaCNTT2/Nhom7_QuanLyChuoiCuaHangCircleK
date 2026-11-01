@@ -1,7 +1,6 @@
 <?php
 require_once dirname(__DIR__, 3) . '/includes/config.php';
 
-// kết nối CSDL giống các module khác (circlek)
 $host = '127.0.0.1'; $db = 'circlek'; $user = 'root'; $pass = '';
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass, [
@@ -14,7 +13,6 @@ try {
 
 $alertMsg = ''; $alertType = 'success';
 
-// xử lý thêm / sửa / xóa khách hàng
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     try {
@@ -29,7 +27,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Vui lòng nhập đầy đủ họ tên, số điện thoại và chọn cửa hàng!');
             }
 
-            // check trùng số điện thoại (cột UNIQUE trong CSDL)
             $check = $pdo->prepare("SELECT id FROM khachhang WHERE so_dien_thoai = ? AND id != ?");
             $check->execute([$so_dien_thoai, $id]);
             if ($check->fetch()) {
@@ -58,7 +55,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// tìm kiếm + lọc theo TÊN hạng thẻ (không lọc theo id vì CSDL có thể có 2 dòng trùng tên khác id)
 $search     = trim($_GET['q'] ?? '');
 $filterHang = trim($_GET['hang'] ?? '');
 
@@ -74,7 +70,6 @@ if ($filterHang !== '') {
     $params[] = $filterHang;
 }
 
-// phân trang - mỗi trang 10 khách hàng
 $moiTrang = 10;
 $trang    = max(1, (int)($_GET['trang'] ?? 1));
 
@@ -82,10 +77,9 @@ $dem = $pdo->prepare("SELECT COUNT(*) FROM khachhang kh LEFT JOIN thetichdiem tt
 $dem->execute($params);
 $tongKhach = (int)$dem->fetchColumn();
 $tongTrang = max(1, (int)ceil($tongKhach / $moiTrang));
-$trang     = min($trang, $tongTrang); // tránh trang=999 vượt quá dữ liệu
+$trang     = min($trang, $tongTrang); 
 $offset    = ($trang - 1) * $moiTrang;
 
-// sắp xếp id tăng dần -> hiện đúng thứ tự KH0001, KH0002, KH0003...
 $sql = "SELECT kh.*, ttd.hang_the
         FROM khachhang kh
         LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id
@@ -96,7 +90,8 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $dsKhachHang = $stmt->fetchAll();
 
-$maKhTiepTheo = (int)$pdo->query("SELECT AUTO_INCREMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'khachhang'")->fetchColumn();
+$dsHangThe = $pdo->query("SELECT MIN(id) AS id, hang_the FROM thetichdiem GROUP BY hang_the ORDER BY MIN(id) ASC")->fetchAll();
+$dsCuaHang = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
 
 $pageTitle  = 'Quản lý Khách hàng';
 $activeMenu = 'khachhang';
@@ -172,7 +167,6 @@ require ROOT_PATH . '/includes/header.php';
         </table>
     </div>
 
-    <!-- phân trang kiểu 1,2,3... -->
     <?php if ($tongTrang > 1): ?>
     <div class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-3">
         <?php
@@ -229,7 +223,6 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 </div>
 
-<!-- form ẩn dùng để xóa -->
 <form method="POST" action="" id="deleteKhForm" class="d-none">
     <input type="hidden" name="action" value="delete">
     <input type="hidden" name="delete_id" id="deleteKhId" value="0">

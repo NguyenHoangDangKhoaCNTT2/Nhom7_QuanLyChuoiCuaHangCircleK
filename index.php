@@ -98,31 +98,19 @@ require ROOT_PATH . '/includes/header.php';
     </div>
     <?php endforeach; ?>
 <?php else:
-    $nhomDuocCap = $_SESSION['vai_tro'];
-    $laDayDu     = count(array_intersect($nhomDuocCap, array_keys($vaiTroList))) >= count($vaiTroList);
+    $nhomHienThi = array_values(array_filter($menu, fn($n) => isset($n['nhom'])));
 ?>
-    <?php if ($laDayDu): ?>
-        <?php $i = 0; foreach ($vaiTroList as $vt): $i++; ?>
-        <div class="col-12 col-sm-6 col-xl-3">
-            <a href="<?= e(url($vt['href'])) ?>" class="bento-panel role-card fade-up d-<?= $i ?> d-block h-100 text-center text-decoration-none" style="color:inherit; --mau-nhan: <?= $vt['mau'] ?>;">
-                <span class="title-icon mx-auto mb-3" style="width:56px;height:56px;font-size:1.4rem;background: linear-gradient(135deg, <?= $vt['color'] ?>);"><i class="fa-solid <?= e($vt['icon']) ?>"></i></span>
-                <div class="fw-bold mb-1"><?= e($vt['label']) ?></div>
-                <div class="small text-muted"><?= e($vt['desc']) ?></div>
-            </a>
-        </div>
-        <?php endforeach; ?>
-    <?php else: foreach ($nhomDuocCap as $key):
-        $vt = $vaiTroList[$key] ?? null;
-        if (!$vt) continue;
-    ?>
-    <div class="col-12 col-sm-6 col-xl-<?= count($nhomDuocCap) <= 2 ? 6 : 3 ?>">
-        <a href="<?= e(url($vt['href'])) ?>" class="bento-panel role-card fade-up d-block h-100 text-center text-decoration-none" style="color:inherit; --mau-nhan: <?= $vt['mau'] ?>;">
-            <span class="title-icon mx-auto mb-3" style="width:56px;height:56px;font-size:1.4rem;background: linear-gradient(135deg, <?= $vt['color'] ?>);"><i class="fa-solid <?= e($vt['icon']) ?>"></i></span>
-            <div class="fw-bold mb-1"><?= e($vt['label']) ?></div>
-            <div class="small text-muted"><?= e($vt['desc']) ?></div>
+    <?php foreach ($nhomHienThi as $nhom): ?>
+    <?php foreach ($nhom['items'] as $item): ?>
+    <div class="col-6 col-sm-4 col-xl-3">
+        <a href="<?= e(url($item['href'])) ?>" class="bento-panel role-card fade-up d-block h-100 text-center text-decoration-none" style="color:inherit; --mau-nhan: <?= e($item['color']) ?>;">
+            <span class="title-icon mx-auto mb-3" style="width:48px;height:48px;font-size:1.2rem;background: <?= e($item['color']) ?>;"><i class="fa-solid <?= e($item['icon']) ?>"></i></span>
+            <div class="fw-bold" style="font-size:0.88rem;"><?= e($item['label']) ?></div>
+            <div class="small text-muted"><?= e($nhom['label']) ?></div>
         </a>
     </div>
-    <?php endforeach; endif; ?>
+    <?php endforeach; ?>
+    <?php endforeach; ?>
 <?php endif; ?>
 </div>
 
