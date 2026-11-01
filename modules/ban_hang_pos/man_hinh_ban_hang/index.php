@@ -48,24 +48,18 @@ foreach ($posBranchManagers as $manager) {
         $posBranchManagerNames[$storeId] = (string)$manager['ho_ten'];
     }
 }
+
 $posRegionalAssignments = [];
-$posAssignmentStores = $posAllStores;
-usort($posAssignmentStores, static function ($a, $b) {
-    return strcmp(
-        hash('sha256', 'circlek-phan-cong-qltruong-2026-' . $a['ma_cua_hang']),
-        hash('sha256', 'circlek-phan-cong-qltruong-2026-' . $b['ma_cua_hang'])
-    );
-});
-if ($posRegionalLeaders) {
-    foreach ($posAssignmentStores as $index => $store) {
-        $leader = $posRegionalLeaders[$index % count($posRegionalLeaders)];
-        $storeId = (int)$store['id'];
-        $posRegionalAssignments[$storeId] = [
-            'regional_id' => (int)$leader['id'],
-            'regional' => (string)$leader['ho_ten'],
-            'branch' => $posBranchManagerNames[$storeId] ?? 'Chưa phân công'
-        ];
-    }
+$khuVucRows = $pdo->query("SELECT kv.cuahang_id, nv.id AS nv_id, nv.ho_ten
+                            FROM khuvuc_phancong kv
+                            JOIN nhanvien nv ON nv.nguoidung_id = kv.quanlytruong_id")->fetchAll();
+foreach ($khuVucRows as $row) {
+    $storeId = (int)$row['cuahang_id'];
+    $posRegionalAssignments[$storeId] = [
+        'regional_id' => (int)$row['nv_id'],
+        'regional' => (string)$row['ho_ten'],
+        'branch' => $posBranchManagerNames[$storeId] ?? 'Chưa phân công'
+    ];
 }
 $posAllowedStoreIds = [];
 foreach ($posAllStores as $store) {

@@ -1,11 +1,13 @@
 <?php
-// Danh sách chức năng theo 4 nhóm - dùng chung cho menu.php và trang phân quyền
 return [
     ['label' => 'Tài khoản & Nhân sự', 'nhom' => 'nhan_su', 'items' => [
         ['key' => 'phanquyen', 'label' => 'Đăng nhập & Phân quyền', 'icon' => 'fa-user-shield', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/dang_nhap_phan_quyen/phan_quyen.php'],
         ['key' => 'cuahang', 'label' => 'Quản lý Cửa hàng', 'icon' => 'fa-store', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/quan_ly_cua_hang/index.php'],
         ['key' => 'nhanvien', 'label' => 'Quản lý Nhân viên', 'icon' => 'fa-user-clock', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/quan_ly_nhan_vien/index.php'],
         ['key' => 'khachhang', 'label' => 'Quản lý Khách hàng', 'icon' => 'fa-id-card-clip', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/quan_ly_khach_hang/index.php'],
+        ['key' => 'nhanvien_khuvuc', 'label' => 'Nhân viên khu vực', 'icon' => 'fa-people-roof', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/nhan_vien_khu_vuc/index.php'],
+        ['key' => 'duyet_nhansu', 'label' => 'Phê duyệt nhân sự', 'icon' => 'fa-clipboard-check', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/duyet_nhan_su/index.php'],
+        ['key' => 'ca_truc', 'label' => 'Ca trực', 'icon' => 'fa-business-time', 'color' => '#34d399', 'href' => 'modules/tai_khoan_nhan_su/ca_truc/index.php'],
     ]],
     ['label' => 'Hàng hóa & Kho', 'nhom' => 'hang_hoa_kho', 'items' => [
         ['key' => 'sanpham', 'label' => 'Quản lý Sản phẩm', 'icon' => 'fa-boxes-stacked', 'color' => '#fbbf24', 'href' => 'modules/hang_hoa_kho/quan_ly_san_pham/index.php'],

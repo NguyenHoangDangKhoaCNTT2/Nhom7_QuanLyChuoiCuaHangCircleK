@@ -2,7 +2,7 @@
 require_once dirname(__DIR__, 3) . '/includes/config.php';
 
 $vaiTro = $_SESSION['vai_tro'] ?? null;
-if ($vaiTro !== 'full' && (!is_array($vaiTro) || !in_array('thong_ke', $vaiTro, true))) {
+if (!is_array($vaiTro) || !in_array('dashboard', $vaiTro, true)) {
     header('Location: ' . url('index.php'));
     exit;
 }
@@ -11,6 +11,56 @@ $pdo = new PDO('mysql:host=127.0.0.1;dbname=circlek;charset=utf8mb4', 'root', ''
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
 ]);
+
+$phanQuyenId  = (int)($_SESSION['phanquyen_id'] ?? 0);
+$userId       = (int)($_SESSION['user_id'] ?? 0);
+$chonCuaHang  = (int)($_GET['xem_cuahang'] ?? 0);
+$coDropdown   = false;
+$dsCuaHangChon = [];
+$scopeStoreIds = null; 
+$scopeLabel    = 'Toàn chuỗi';
+
+if ($phanQuyenId === 1) {
+    $coDropdown    = true;
+    $dsCuaHangChon = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+    $maCuaHangHopLe = array_column($dsCuaHangChon, 'id');
+    if ($chonCuaHang > 0 && in_array($chonCuaHang, $maCuaHangHopLe, true)) {
+        $scopeStoreIds = [$chonCuaHang];
+        foreach ($dsCuaHangChon as $ch) if ((int)$ch['id'] === $chonCuaHang) $scopeLabel = $ch['ten_cua_hang'];
+    } else {
+        $chonCuaHang = 0;
+        $scopeStoreIds = null;
+        $scopeLabel = 'Toàn chuỗi';
+    }
+} elseif ($phanQuyenId === 2) {
+    $khuVuc = layKhuVuc($pdo, $userId);
+    $coDropdown = true;
+    if (!empty($khuVuc)) {
+        $inKv = implode(',', array_fill(0, count($khuVuc), '?'));
+        $stmtKv = $pdo->prepare("SELECT id, ten_cua_hang FROM cuahang WHERE id IN ($inKv) ORDER BY id ASC");
+        $stmtKv->execute($khuVuc);
+        $dsCuaHangChon = $stmtKv->fetchAll();
+    }
+    if ($chonCuaHang > 0 && in_array($chonCuaHang, $khuVuc, true)) {
+        $scopeStoreIds = [$chonCuaHang];
+        foreach ($dsCuaHangChon as $ch) if ((int)$ch['id'] === $chonCuaHang) $scopeLabel = $ch['ten_cua_hang'];
+    } else {
+        $chonCuaHang = 0;
+        $scopeStoreIds = empty($khuVuc) ? [0] : $khuVuc;
+        $scopeLabel = 'Khu vực bạn phụ trách';
+    }
+} elseif ($phanQuyenId === 3) {
+    $myStore = (int)($_SESSION['cuahang_id'] ?? 0);
+    $scopeStoreIds = $myStore > 0 ? [$myStore] : [0];
+    $tenCHStmt = $pdo->prepare("SELECT ten_cua_hang FROM cuahang WHERE id = ?");
+    $tenCHStmt->execute([$myStore]);
+    $scopeLabel = $tenCHStmt->fetchColumn() ?: 'Cửa hàng của bạn';
+}
+
+if ($scopeStoreIds !== null && empty($scopeStoreIds)) $scopeStoreIds = [0];
+$coLoc    = $scopeStoreIds !== null;
+$dkCh     = $coLoc ? ' AND h.cuahang_id IN (' . implode(',', array_fill(0, count($scopeStoreIds), '?')) . ')' : '';
+$dkChTruc = $coLoc ? ' AND cuahang_id IN (' . implode(',', array_fill(0, count($scopeStoreIds), '?')) . ')' : '';
 
 function dashboardTrend(float $current, float $previous): array
 {
@@ -68,8 +118,9 @@ $kpiStmt = $pdo->prepare("
     WHERE h.trang_thai IN ('Hoàn thành', 'Đã thanh toán')
       AND h.ngay_tao >= ?
       AND h.ngay_tao < ?
+      $dkCh
 ");
-$kpiStmt->execute([$todayStart, $todayStart, $todayStart, $todayStart, $yesterdayStart, $tomorrowStart]);
+$kpiStmt->execute(array_merge([$todayStart, $todayStart, $todayStart, $todayStart, $yesterdayStart, $tomorrowStart], $coLoc ? $scopeStoreIds : []));
 $kpi = $kpiStmt->fetch();
 
 $customerKpiStmt = $pdo->prepare("
@@ -79,11 +130,14 @@ $customerKpiStmt = $pdo->prepare("
     FROM khachhang
     WHERE ngay_dang_ky >= ?
       AND ngay_dang_ky < ?
+      $dkChTruc
 ");
-$customerKpiStmt->execute([$todayStart, $todayStart, $yesterdayStart, $tomorrowStart]);
+$customerKpiStmt->execute(array_merge([$todayStart, $todayStart, $yesterdayStart, $tomorrowStart], $coLoc ? $scopeStoreIds : []));
 $customerKpi = $customerKpiStmt->fetch();
 
-$lowStock = (int)$pdo->query("SELECT COUNT(*) FROM tonkho WHERE so_luong < 10")->fetchColumn();
+$lowStockStmt = $pdo->prepare("SELECT COUNT(*) FROM tonkho WHERE so_luong < 10 $dkChTruc");
+$lowStockStmt->execute($coLoc ? $scopeStoreIds : []);
+$lowStock = (int)$lowStockStmt->fetchColumn();
 
 $revenueStmt = $pdo->prepare("
     SELECT DATE(h.ngay_tao) AS ngay, SUM(h.khach_phai_tra) AS doanh_thu
@@ -91,10 +145,11 @@ $revenueStmt = $pdo->prepare("
     WHERE h.trang_thai IN ('Hoàn thành', 'Đã thanh toán')
       AND h.ngay_tao >= ?
       AND h.ngay_tao < ?
+      $dkCh
     GROUP BY DATE(h.ngay_tao)
     ORDER BY ngay
 ");
-$revenueStmt->execute([$rangeStart, $rangeEnd]);
+$revenueStmt->execute(array_merge([$rangeStart, $rangeEnd], $coLoc ? $scopeStoreIds : []));
 $revenueByDate = [];
 foreach ($revenueStmt->fetchAll() as $row) {
     $revenueByDate[$row['ngay']] = (float)$row['doanh_thu'];
@@ -119,15 +174,16 @@ $categoryStmt = $pdo->prepare("
     WHERE h.trang_thai IN ('Hoàn thành', 'Đã thanh toán')
       AND h.ngay_tao >= ?
       AND h.ngay_tao < ?
+      $dkCh
     GROUP BY dm.id, dm.ten_danh_muc
     ORDER BY doanh_thu DESC
 ");
-$categoryStmt->execute([$rangeStart, $rangeEnd]);
+$categoryStmt->execute(array_merge([$rangeStart, $rangeEnd], $coLoc ? $scopeStoreIds : []));
 $categoryRows = $categoryStmt->fetchAll();
 $categoryLabels = array_column($categoryRows, 'ten_danh_muc');
 $categoryRevenue = array_map('floatval', array_column($categoryRows, 'doanh_thu'));
 
-$recentStmt = $pdo->query("
+$recentStmt = $pdo->prepare("
     SELECT h.id, h.ngay_tao, h.trang_thai, c.ten_cua_hang,
            h.tong_tien, h.khach_phai_tra,
            COALESCE(items.gia_tri_hang, 0) AS gia_tri_hang
@@ -138,9 +194,11 @@ $recentStmt = $pdo->query("
         FROM chitiethoadon
         GROUP BY hoadon_id
     ) items ON items.hoadon_id = h.id
+    WHERE 1=1 $dkCh
     ORDER BY h.ngay_tao DESC, h.id DESC
     LIMIT 5
 ");
+$recentStmt->execute($coLoc ? $scopeStoreIds : []);
 $recentOrders = $recentStmt->fetchAll();
 $revenueTrend = dashboardTrend((float)$kpi['doanh_thu_hom_nay'], (float)$kpi['doanh_thu_hom_qua']);
 $orderTrend = dashboardTrend((float)$kpi['don_hom_nay'], (float)$kpi['don_hom_qua']);
@@ -148,6 +206,21 @@ $customerTrend = dashboardTrend((float)$customerKpi['khach_hom_nay'], (float)$cu
 
 require ROOT_PATH . '/includes/header.php';
 ?>
+
+<div class="mb-3 d-flex flex-wrap align-items-center gap-2">
+    <span class="badge bg-light text-dark border" style="font-size: 0.85rem;"><i class="fa-solid fa-map-pin me-1" style="color:var(--ck-red);"></i><?= e($scopeLabel) ?></span>
+    <?php if ($coDropdown): ?>
+    <form method="get" class="d-inline-flex align-items-center gap-2">
+        <input type="hidden" name="period" value="<?= e($period) ?>">
+        <select name="xem_cuahang" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+            <option value="0"><?= $phanQuyenId === 1 ? 'Toàn chuỗi' : 'Toàn khu vực' ?></option>
+            <?php foreach ($dsCuaHangChon as $ch): ?>
+            <option value="<?= (int)$ch['id'] ?>" <?= $chonCuaHang === (int)$ch['id'] ? 'selected' : '' ?>><?= e($ch['ten_cua_hang']) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </form>
+    <?php endif; ?>
+</div>
 
 <div class="row g-4 mb-4">
     <div class="col-xl-3 col-sm-6">
@@ -212,6 +285,7 @@ require ROOT_PATH . '/includes/header.php';
                     <div class="panel-subtitle ms-5">Số khách phải trả trên hóa đơn, từ <?php echo e($range['start']); ?> đến <?php echo e($range['end']); ?></div>
                 </div>
                 <form method="get" class="d-flex gap-2">
+                    <input type="hidden" name="xem_cuahang" value="<?= $chonCuaHang ?>">
                     <select name="period" class="form-select" aria-label="Khoảng thời gian" onchange="this.form.submit()">
                         <option value="7days" <?php echo $period === '7days' ? 'selected' : ''; ?>>7 ngày</option>
                         <option value="30days" <?php echo $period === '30days' ? 'selected' : ''; ?>>30 ngày</option>
@@ -248,7 +322,7 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="title-icon" style="background: linear-gradient(135deg, var(--ck-blue), var(--violet))"><i class="fa-solid fa-list-check"></i></span>
                 Giao dịch gần đây
             </h5>
-            <div class="panel-subtitle ms-5">Năm hóa đơn mới nhất từ cơ sở dữ liệu</div>
+            <div class="panel-subtitle ms-5">Năm hóa đơn mới nhất trong phạm vi xem của bạn</div>
         </div>
     </div>
     <div class="table-responsive">

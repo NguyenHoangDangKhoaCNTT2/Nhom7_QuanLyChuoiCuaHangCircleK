@@ -11,6 +11,9 @@ try {
     die('<div style="padding:20px;color:#e11d48;font-family:sans-serif;"><h3>Không thể kết nối Database!</h3><p>Kiểm tra MySQL trong XAMPP đã Start chưa và đã import file SQL database <b>circlek</b> chưa.</p><small>' . htmlspecialchars($e->getMessage()) . '</small></div>');
 }
 
+$laQuanLyCH   = (int)($_SESSION['phanquyen_id'] ?? 0) === 3;
+$choCuaHangId = $laQuanLyCH ? (int)($_SESSION['cuahang_id'] ?? 0) : 0;
+
 $alertMsg = ''; $alertType = 'success';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -21,12 +24,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ho_ten        = trim($_POST['ho_ten'] ?? '');
             $so_dien_thoai = trim($_POST['so_dien_thoai'] ?? '');
             $chuc_vu       = trim($_POST['chuc_vu'] ?? '');
-            $cuahang_id    = (int)($_POST['cuahang_id'] ?? 0);
+            $cuahang_id    = $laQuanLyCH ? $choCuaHangId : (int)($_POST['cuahang_id'] ?? 0);
             $luong         = (float)($_POST['luong'] ?? 0);
             $ngay_vao_lam  = trim($_POST['ngay_vao_lam'] ?? '') ?: null;
 
             if ($ho_ten === '' || $cuahang_id <= 0 || $chuc_vu === '') {
                 throw new Exception('Vui lòng nhập đầy đủ họ tên, chức vụ và chọn cửa hàng!');
+            }
+
+            if ($laQuanLyCH && $id > 0) {
+                $chk = $pdo->prepare("SELECT cuahang_id FROM nhanvien WHERE id = ?");
+                $chk->execute([$id]);
+                if ((int)$chk->fetchColumn() !== $choCuaHangId) {
+                    throw new Exception('Bạn chỉ được sửa nhân viên tại cửa hàng của mình!');
+                }
             }
 
             if ($id > 0) {
@@ -40,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$phanquyen_id) $phanquyen_id = 4;
 
                 $username = 'nv' . preg_replace('/\D/', '', $so_dien_thoai ?: uniqid());
-                $passHash = password_hash('123456', PASSWORD_DEFAULT); 
+                $passHash = '123456'; 
 
                 $pdo->beginTransaction();
                 $uStmt = $pdo->prepare("INSERT INTO nguoidung (username, password, phanquyen_id) VALUES (?,?,?)");
@@ -55,8 +66,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        if ($action === 'delete') {
+                if ($action === 'delete') {
             $delId = (int)($_POST['delete_id'] ?? 0);
+            if ($laQuanLyCH) {
+                $chk = $pdo->prepare("SELECT cuahang_id FROM nhanvien WHERE id = ?");
+                $chk->execute([$delId]);
+                if ((int)$chk->fetchColumn() !== $choCuaHangId) {
+                    throw new Exception('Bạn chỉ được xóa nhân viên tại cửa hàng của mình!');
+                }
+            }
             $pdo->prepare("DELETE FROM nhanvien WHERE id = ?")->execute([$delId]);
             $alertMsg = 'Đã xóa nhân viên khỏi hệ thống!';
         }
@@ -71,13 +89,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// tìm kiếm + lọc
 $search      = trim($_GET['q'] ?? '');
-$filterCh    = (int)($_GET['cuahang'] ?? 0);
+$filterCh    = $laQuanLyCH ? $choCuaHangId : (int)($_GET['cuahang'] ?? 0);
 $filterCv    = trim($_GET['chucvu'] ?? '');
 
 $where  = "WHERE 1=1";
 $params = [];
+if ($laQuanLyCH) {
+    $where .= " AND nv.chuc_vu NOT IN ('Giám Đốc', 'Quản Lý Trưởng')";
+}
 if ($search !== '') {
     $where .= " AND (nv.ho_ten LIKE ? OR nv.so_dien_thoai LIKE ?)";
     $params[] = "%$search%";
@@ -114,6 +134,11 @@ $dsNhanVien = $stmt->fetchAll();
 
 $maNvTiepTheo = (int)$pdo->query("SELECT AUTO_INCREMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'nhanvien'")->fetchColumn();
 
+$dsCuaHang = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+$dsChucVu  = $laQuanLyCH
+    ? $pdo->query("SELECT id, ten_quyen FROM phanquyen WHERE id IN (4,5) ORDER BY id ASC")->fetchAll()
+    : $pdo->query("SELECT id, ten_quyen FROM phanquyen ORDER BY id ASC")->fetchAll();
+
 $pageTitle  = 'Quản lý Nhân viên';
 $activeMenu = 'nhanvien';
 
@@ -135,7 +160,7 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="title-icon" style="background: linear-gradient(135deg, var(--emerald), #059669)"><i class="fa-solid fa-user-clock"></i></span>
                 Danh sách nhân viên
             </h5>
-            <div class="panel-subtitle ms-5">Hồ sơ nhân viên toàn chuỗi <span class="ms-2 badge rounded-pill bg-light text-dark border">Tổng: <?= $tongNV ?> người</span></div>
+                        <div class="panel-subtitle ms-5"><?= $laQuanLyCH ? 'Hồ sơ nhân viên cửa hàng của bạn' : 'Hồ sơ nhân viên toàn chuỗi' ?> <span class="ms-2 badge rounded-pill bg-light text-dark border" style="font-size: 0.85rem;">Tổng: <?= $tongNV ?> người</span></div>
         </div>
     </div>
 
@@ -144,18 +169,21 @@ require ROOT_PATH . '/includes/header.php';
             <i class="fa-solid fa-magnifying-glass s-ico"></i>
             <input type="text" name="q" value="<?= htmlspecialchars($search) ?>" placeholder="Tìm theo tên, số điện thoại...">
         </div>
+        <?php if (!$laQuanLyCH): ?>
         <select name="cuahang" class="form-select" style="width: auto;" onchange="this.form.submit()">
             <option value="0">Tất cả cửa hàng</option>
             <?php foreach ($dsCuaHang as $ch): ?>
                 <option value="<?= $ch['id'] ?>" <?= $filterCh === (int)$ch['id'] ? 'selected' : '' ?>><?= htmlspecialchars($ch['ten_cua_hang']) ?></option>
             <?php endforeach; ?>
         </select>
-        <select name="chucvu" class="form-select" style="width: auto;" onchange="this.form.submit()">
+        <?php endif; ?>
+               <select name="chucvu" class="form-select" style="width: auto;" onchange="this.form.submit()">
             <option value="">Tất cả chức vụ</option>
             <?php foreach ($dsChucVu as $cv): ?>
                 <option value="<?= htmlspecialchars($cv['ten_quyen']) ?>" <?= $filterCv === $cv['ten_quyen'] ? 'selected' : '' ?>><?= htmlspecialchars($cv['ten_quyen']) ?></option>
             <?php endforeach; ?>
         </select>
+        <button type="submit" class="btn-ck btn-ck-soft"><i class="fa-solid fa-filter"></i> Lọc</button>
         <?php if ($search !== '' || $filterCh > 0 || $filterCv !== ''): ?>
             <a href="index.php" class="btn-ck btn-ck-soft text-danger"><i class="fa-solid fa-rotate-left"></i> Đặt lại</a>
         <?php endif; ?>
@@ -175,7 +203,7 @@ require ROOT_PATH . '/includes/header.php';
                     <td><span class="fw-semibold"><?= htmlspecialchars($nv['ho_ten']) ?></span></td>
                     <td><?= htmlspecialchars($nv['so_dien_thoai'] ?? '') ?></td>
                     <td><?= htmlspecialchars($nv['chuc_vu'] ?? '') ?></td>
-                    <td><?= htmlspecialchars($nv['ten_cua_hang'] ?? '') ?></td>
+                                        <td><?= in_array($nv['chuc_vu'], ['Giám Đốc', 'Quản Lý Trưởng'], true) ? '' : htmlspecialchars($nv['ten_cua_hang'] ?? '') ?></td>
                     <td class="text-end"><span class="num-font fw-bold"><?= number_format((float)$nv['luong']) ?></span></td>
                     <td><?= $nv['ngay_vao_lam'] ? date('d/m/Y', strtotime($nv['ngay_vao_lam'])) : '—' ?></td>
                     <td>
@@ -226,13 +254,14 @@ require ROOT_PATH . '/includes/header.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-6">
+                                        <div class="col-md-6">
                         <label class="form-label" for="nvCh">Cửa hàng <span class="text-danger">*</span></label>
-                        <select class="form-select" name="cuahang_id" id="nvCh" required>
+                        <select class="form-select" name="cuahang_id" id="nvCh" required <?= $laQuanLyCH ? 'disabled' : '' ?>>
                             <?php foreach ($dsCuaHang as $ch): ?>
-                                <option value="<?= $ch['id'] ?>"><?= htmlspecialchars($ch['ten_cua_hang']) ?></option>
+                                <option value="<?= $ch['id'] ?>" <?= $laQuanLyCH && (int)$ch['id'] === $choCuaHangId ? 'selected' : '' ?>><?= htmlspecialchars($ch['ten_cua_hang']) ?></option>
                             <?php endforeach; ?>
                         </select>
+                        <?php if ($laQuanLyCH): ?><input type="hidden" name="cuahang_id" value="<?= $choCuaHangId ?>"><?php endif; ?>
                     </div>
                     <div class="col-md-6"><label class="form-label" for="nvSdt">Số điện thoại</label><input type="text" class="form-control" name="so_dien_thoai" id="nvSdt"></div>
                     <div class="col-md-6"><label class="form-label" for="nvLuong">Lương (đ)</label><input type="number" class="form-control" name="luong" id="nvLuong" min="0" step="100000"></div>
