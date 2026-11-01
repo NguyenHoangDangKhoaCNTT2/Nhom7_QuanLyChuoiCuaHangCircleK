@@ -6,7 +6,6 @@ array_unshift($full, ['label' => 'Điều hành chuỗi', 'items' => [
     ['key' => 'home', 'label' => 'Trang chủ', 'icon' => 'fa-house', 'color' => '#ff4d6d', 'href' => 'index.php'],
 ]]);
 
-// chưa đăng nhập -> chỉ Trang chủ + 2 trang xem công khai
 if ($vaiTro === null) {
     return [
         ['items' => [
@@ -17,10 +16,18 @@ if ($vaiTro === null) {
     ];
 }
 
-// Giám Đốc -> xem full chức năng
-if ($vaiTro === 'full') return $full;
-
-// vai trò khác -> chỉ xem trang quản lý + Trang chủ
-return array_values(array_filter($full, function ($g) use ($vaiTro) {
-    return !isset($g['nhom']) || in_array($g['nhom'], $vaiTro, true);
-}));
+$ketQua = [];
+foreach ($full as $nhom) {
+    if (!isset($nhom['nhom'])) { 
+        $ketQua[] = $nhom;
+        continue;
+    }
+    $itemsConLai = array_values(array_filter($nhom['items'], function ($item) use ($vaiTro) {
+        return in_array($item['key'], $vaiTro, true);
+    }));
+    if (!empty($itemsConLai)) {
+        $nhom['items'] = $itemsConLai;
+        $ketQua[] = $nhom;
+    }
+}
+return $ketQua;

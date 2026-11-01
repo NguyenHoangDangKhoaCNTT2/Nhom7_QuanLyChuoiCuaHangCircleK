@@ -39,16 +39,20 @@ function layVaiTro(PDO $pdo, int $nguoidung_id, int $phanquyen_id, string $usern
     $tuyChinh = $stmt->fetchAll(PDO::FETCH_COLUMN);
     if (!empty($tuyChinh)) return $tuyChinh;
 
-    if ($phanquyen_id === 1) return ['nhan_su', 'hang_hoa_kho', 'ban_hang', 'thong_ke']; // Giám Đốc - full
-    $theoTaiKhoan = [
-        'qlt_phu'  => 'hang_hoa_kho', 
-        'qlt_nam'  => 'ban_hang',     
-        'qlt_thai' => 'thong_ke', 
+    $macDinh = [
+        1 => ['phanquyen', 'cuahang', 'nhanvien', 'khachhang', 'sanpham', 'nhapkho', 'dieuchuyen', 'pos', 'hoadon', 'khuyenmai', 'thanhtoan', 'dashboard', 'sosanh', 'banchay', 'locbaocao', 'duyet_nhansu', 'nhanvien_khuvuc', 'ca_truc'], 
+        2 => ['dashboard', 'nhanvien_khuvuc', 'ca_truc'],   
+        3 => ['dashboard', 'nhanvien', 'ca_truc'], 
+        4 => ['pos', 'thanhtoan'],                 
+        5 => ['dieuchuyen', 'nhapkho'],          
     ];
-    if (isset($theoTaiKhoan[$username])) return [$theoTaiKhoan[$username]];
+    return $macDinh[$phanquyen_id] ?? ['dashboard'];
+}
 
-    $map = [2 => 'thong_ke', 3 => 'nhan_su', 4 => 'ban_hang', 5 => 'hang_hoa_kho'];
-    return [$map[$phanquyen_id] ?? 'nhan_su'];
+function layKhuVuc(PDO $pdo, int $quanlytruong_id): array {
+    $stmt = $pdo->prepare("SELECT cuahang_id FROM khuvuc_phancong WHERE quanlytruong_id = ? ORDER BY cuahang_id ASC");
+    $stmt->execute([$quanlytruong_id]);
+    return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
 }
 
 $thu = ['Chủ Nhật','Thứ Hai','Thứ Ba','Thứ Tư','Thứ Năm','Thứ Sáu','Thứ Bảy'][(int)date('w')];

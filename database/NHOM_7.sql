@@ -14,6 +14,34 @@ CREATE TABLE `phanquyen` (`id` int(11) NOT NULL AUTO_INCREMENT, `ten_quyen` varc
 CREATE TABLE `nguoidung` (`id` int(11) NOT NULL AUTO_INCREMENT, `username` varchar(50) NOT NULL UNIQUE, `password` varchar(255) NOT NULL, `phanquyen_id` int(11) NOT NULL, `trang_thai` tinyint(1) DEFAULT 1, PRIMARY KEY (`id`), FOREIGN KEY (`phanquyen_id`) REFERENCES `phanquyen`(`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE `phanquyen_tuychinh` (`id` int(11) NOT NULL AUTO_INCREMENT, `nguoidung_id` int(11) NOT NULL, `nhom` varchar(30) NOT NULL, PRIMARY KEY (`id`), UNIQUE KEY `uniq_nguoidung_nhom` (`nguoidung_id`, `nhom`), FOREIGN KEY (`nguoidung_id`) REFERENCES `nguoidung`(`id`) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE `nhanvien` (`id` int(11) NOT NULL AUTO_INCREMENT, `nguoidung_id` int(11) NOT NULL, `cuahang_id` int(11) NOT NULL, `ho_ten` varchar(100) NOT NULL, `so_dien_thoai` varchar(20) DEFAULT NULL, `chuc_vu` varchar(50) DEFAULT NULL, `luong` decimal(15,2) DEFAULT 0.00, `ngay_vao_lam` date DEFAULT NULL, PRIMARY KEY (`id`), FOREIGN KEY (`nguoidung_id`) REFERENCES `nguoidung`(`id`), FOREIGN KEY (`cuahang_id`) REFERENCES `cuahang`(`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS `khuvuc_phancong` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `quanlytruong_id` INT NOT NULL,
+  `cuahang_id` INT NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_qlt_ch` (`quanlytruong_id`, `cuahang_id`),
+  FOREIGN KEY (`quanlytruong_id`) REFERENCES `nguoidung`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`cuahang_id`) REFERENCES `cuahang`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS `yeucau_nhansu` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `loai` ENUM('them','xoa') NOT NULL,
+  `quanlytruong_id` INT NOT NULL,
+  `cuahang_id` INT NOT NULL,
+  `nhanvien_id` INT DEFAULT NULL,
+  `ho_ten` VARCHAR(100) DEFAULT NULL,
+  `so_dien_thoai` VARCHAR(20) DEFAULT NULL,
+  `chuc_vu` VARCHAR(50) DEFAULT NULL,
+  `luong` DECIMAL(15,2) DEFAULT NULL,
+  `trang_thai` ENUM('cho_duyet','da_duyet','tu_choi') NOT NULL DEFAULT 'cho_duyet',
+  `ngay_yeu_cau` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `nguoi_duyet_id` INT DEFAULT NULL,
+  `ngay_duyet` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  FOREIGN KEY (`quanlytruong_id`) REFERENCES `nguoidung`(`id`),
+  FOREIGN KEY (`cuahang_id`) REFERENCES `cuahang`(`id`),
+  FOREIGN KEY (`nhanvien_id`) REFERENCES `nhanvien`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE `thetichdiem` (`id` int(11) NOT NULL AUTO_INCREMENT, `hang_the` varchar(50) NOT NULL, `diem_toi_thieu` int(11) NOT NULL DEFAULT 0, `ti_le_giam_gia` decimal(5,2) DEFAULT 0.00, PRIMARY KEY (`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE `khachhang` (`id` int(11) NOT NULL AUTO_INCREMENT, `ho_ten` varchar(100) NOT NULL, `so_dien_thoai` varchar(20) NOT NULL UNIQUE, `thetichdiem_id` int(11) DEFAULT NULL, `diem_tich_luy` int(11) DEFAULT 0, `cuahang_id` int(11) NOT NULL, `ngay_dang_ky` datetime DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (`id`), FOREIGN KEY (`thetichdiem_id`) REFERENCES `thetichdiem`(`id`), FOREIGN KEY (`cuahang_id`) REFERENCES `cuahang`(`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE `calamviec` (`id` int(11) NOT NULL AUTO_INCREMENT, `cuahang_id` int(11) NOT NULL, `nhanvien_id` int(11) NOT NULL, `ten_ca` varchar(50) NOT NULL, `thoi_gian_bat_dau` datetime NOT NULL, `thoi_gian_ket_thuc` datetime NOT NULL, `check_in` datetime DEFAULT NULL, `check_out` datetime DEFAULT NULL, PRIMARY KEY (`id`), FOREIGN KEY (`cuahang_id`) REFERENCES `cuahang`(`id`), FOREIGN KEY (`nhanvien_id`) REFERENCES `nhanvien`(`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -168,6 +196,11 @@ INSERT INTO `nhanvien` (`nguoidung_id`, `cuahang_id`, `ho_ten`, `so_dien_thoai`,
 (50, 12, 'Lê Gia Vinh', '0769465539', 'Nhân Viên Bán Hàng', 7000000),
 (51, 12, 'Đỗ Cẩm Trang', '0857428303', 'Nhân Viên Bán Hàng', 7000000),
 (52, 12, 'Lý Bảo Phú', '0858979765', 'Nhân Viên Kho', 8000000);
+
+INSERT INTO `khuvuc_phancong` (`quanlytruong_id`, `cuahang_id`) VALUES
+(2, 1), (2, 2), (2, 3), (2, 4),
+(3, 5), (3, 6), (3, 7), (3, 8),
+(4, 9), (4, 10), (4, 11), (4, 12);
 
 INSERT INTO `thetichdiem` (`hang_the`, `diem_toi_thieu`, `ti_le_giam_gia`) VALUES ('Bạc', 0, 0), ('Vàng', 1000, 2), ('Kim Cương', 3000, 5);
 
@@ -2054,3 +2087,7 @@ INSERT INTO `thanhtoan` (`hoadon_id`, `phuong_thuc`, `so_tien_thanh_toan`) VALUE
 (58, 'Tiền mặt', 100000),
 (59, 'Tiền mặt', 100000),
 (60, 'Tiền mặt', 100000);
+
+UPDATE nhanvien
+SET ngay_vao_lam = DATE_ADD('2026-01-01', INTERVAL FLOOR(RAND() * (DATEDIFF('2026-09-30','2026-01-01') + 1)) DAY)
+WHERE id > 4;

@@ -2,7 +2,7 @@
 require_once dirname(__DIR__, 3) . '/includes/config.php';
 
 $vaiTro = $_SESSION['vai_tro'] ?? null;
-if ($vaiTro !== 'full' && (!is_array($vaiTro) || !in_array('thong_ke', $vaiTro, true))) {
+if (!is_array($vaiTro) || !in_array('sosanh', $vaiTro, true)) {
     header('Location: ' . url('index.php'));
     exit;
 }
