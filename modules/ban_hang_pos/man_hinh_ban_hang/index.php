@@ -217,6 +217,19 @@ if (($_GET['pos_api'] ?? '') === 'promotions') {
     exit;
 }
 
+function posStockLimitMessage(PDO $pdo, int $productId, int $storeId, int $requested, int $ownReserved = 0): string {
+    $stockStmt = $pdo->prepare("SELECT GREATEST(so_luong, 0) FROM tonkho WHERE sanpham_id = ? AND cuahang_id = ? LIMIT 1");
+    $stockStmt->execute([$productId, $storeId]);
+    $available = max(0, (int)$stockStmt->fetchColumn() + $ownReserved);
+    $nameStmt = $pdo->prepare("SELECT ten_san_pham FROM sanpham WHERE id = ? LIMIT 1");
+    $nameStmt->execute([$productId]);
+    $name = (string)($nameStmt->fetchColumn() ?: 'Sản phẩm');
+    if ($available === 0) {
+        return $name . ' đã hết hàng tại chi nhánh này. Bạn đang yêu cầu ' . number_format($requested, 0, ',', '.') . ' sản phẩm, hiện có thể mua 0 sản phẩm.';
+    }
+    return $name . ' hiện chỉ còn ' . number_format($available, 0, ',', '.') . ' sản phẩm tại chi nhánh này. Bạn đang yêu cầu ' . number_format($requested, 0, ',', '.') . ' sản phẩm. Tối đa có thể mua ' . number_format($available, 0, ',', '.') . ' sản phẩm.';
+}
+
 function cancelActivePosOrder(PDO $pdo, int $orderId): void {
     if ($orderId <= 0) return;
     $stmtOrder = $pdo->prepare("SELECT id, cuahang_id, trang_thai FROM hoadon WHERE id = ? FOR UPDATE");
@@ -266,7 +279,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pos_action'] ?? '') === 's
             $id = (int)($item['id'] ?? 0);
             $qty = (int)($item['qty'] ?? 0);
             $price = (float)($item['price'] ?? 0);
-            if ($id <= 0 || $qty <= 0 || $qty > 1000 || !is_finite($price) || $price < 0) {
+            if ($id <= 0 || $qty <= 0 || !is_finite($price) || $price < 0) {
                 throw new RuntimeException('Số lượng hoặc đơn giá sản phẩm không hợp lệ.');
             }
             if (!isset($newItems[$id])) {
@@ -319,7 +332,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pos_action'] ?? '') === 's
             $difference = $newQty - $oldQty;
             if ($difference > 0) {
                 $takeStock->execute([$difference, $productId, $storeId, $difference]);
-                if ($takeStock->rowCount() !== 1) throw new RuntimeException('Số lượng tồn kho không đủ cho sản phẩm đã chọn.');
+                if ($takeStock->rowCount() !== 1) {
+                    throw new RuntimeException(posStockLimitMessage($pdo, (int)$productId, $storeId, $newQty, $oldQty));
+                }
             } elseif ($difference < 0) {
                 $restoreStock->execute([-$difference, $productId, $storeId]);
             }
@@ -407,7 +422,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
             if (!is_array($item)) throw new RuntimeException('Dữ liệu sản phẩm không hợp lệ.');
             $productId = (int)($item['id'] ?? 0);
             $quantity = (int)($item['qty'] ?? 0);
-            if ($productId <= 0 || $quantity < 1 || $quantity > 1000 || !isset($item['qty']) || !is_numeric($item['qty'])) {
+            if ($productId <= 0 || $quantity < 1 || !isset($item['qty']) || !is_numeric($item['qty'])) {
                 throw new RuntimeException('Số lượng sản phẩm không hợp lệ.');
             }
             $stmtProduct->execute([$productId]);
@@ -415,7 +430,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
             if (!$product) throw new RuntimeException('Sản phẩm không còn được phép bán.');
             $stmtTk->execute([$quantity, $productId, $cuahang_id, $quantity]);
             if ($stmtTk->rowCount() !== 1) {
-                throw new RuntimeException('Sản phẩm ' . $product['ten_san_pham'] . ' đã hết hàng hoặc không đủ tồn kho tại cửa hàng này.');
+                throw new RuntimeException(posStockLimitMessage($pdo, $productId, $cuahang_id, $quantity));
             }
             $unitPrice = (float)$item['price'];
             if (!is_finite($unitPrice) || $unitPrice < 0) throw new RuntimeException('Đơn giá sản phẩm không hợp lệ.');
@@ -846,12 +861,17 @@ require ROOT_PATH . '/includes/header.php';
         return result.stock;
     }
 
-    function showStockWarning(name, remaining) {
+    function showStockWarning(name, remaining, requested = null) {
+        const maximum = Math.max(0, Math.trunc(Number(remaining) || 0));
+        const storeName = document.getElementById('posStoreSelect').selectedOptions[0]?.textContent.trim() || 'chi nhánh hiện tại';
+        const requestedText = requested === null ? '' : String(requested).replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        const wanted = requested === null ? '' : `Bạn yêu cầu ${requestedText} sản phẩm. `;
+        const available = maximum === 0
+            ? `${name} đã hết hàng tại ${storeName}. Hiện không thể mua sản phẩm này.`
+            : `${name} tại ${storeName} chỉ còn ${maximum.toLocaleString('vi-VN')} sản phẩm. Bạn có thể mua tối đa ${maximum.toLocaleString('vi-VN')} sản phẩm.`;
         openPosNotice({
-            title: remaining <= 0 ? 'Sản phẩm đã hết hàng' : 'Số lượng tồn kho không đủ',
-            message: remaining <= 0
-                ? `${name} hiện đã hết hàng tại cửa hàng này. Vui lòng chọn sản phẩm khác.`
-                : `${name} chỉ còn ${remaining} sản phẩm tại cửa hàng này.`,
+            title: maximum === 0 ? 'Sản phẩm đã hết hàng' : 'Không đủ số lượng tồn kho',
+            message: wanted + available,
             mode: 'info', confirmText: 'Đã hiểu'
         });
     }
@@ -1195,7 +1215,7 @@ require ROOT_PATH . '/includes/header.php';
         const existing = cart.find(item => Number(item.id) === Number(id));
         const remaining = getPosStock(id);
         if ((existing ? Number(existing.qty) : 0) >= remaining) {
-            showStockWarning(name, remaining);
+            showStockWarning(name, remaining, (existing ? Number(existing.qty) : 0) + 1);
             return;
         }
         beep();
@@ -1227,7 +1247,7 @@ require ROOT_PATH . '/includes/header.php';
             const refreshedItem = cart.find(item => Number(item.id) === Number(id));
             if (!refreshedItem) return;
             if (refreshedItem.qty + delta > getPosStock(id)) {
-                showStockWarning(refreshedItem.name, getPosStock(id));
+                showStockWarning(refreshedItem.name, getPosStock(id), refreshedItem.qty + delta);
                 return;
             }
         }
@@ -1241,42 +1261,73 @@ require ROOT_PATH . '/includes/header.php';
         document.getElementById('cartBox').scrollTop = 0;
     }
 
+    const posQuantityCommits = new Set();
+
+    function commitPosQuantityInput(input, id) {
+        if (input.dataset.committing === '1') return Promise.resolve(true);
+        input.dataset.committing = '1';
+        const work = setQty(id, input.value);
+        posQuantityCommits.add(work);
+        work.finally(() => {
+            posQuantityCommits.delete(work);
+            input.dataset.committing = '0';
+        });
+        return work;
+    }
+
+    async function flushPosQuantityInputs() {
+        const inputs = Array.from(document.querySelectorAll('.qty-input'));
+        for (const input of inputs) {
+            const id = Number(input.dataset.productId);
+            const item = cart.find(product => Number(product.id) === id);
+            if (item && input.dataset.committing !== '1' && input.value.trim() !== String(item.qty)) {
+                commitPosQuantityInput(input, id);
+            }
+        }
+        const results = await Promise.all(Array.from(posQuantityCommits));
+        return results.every(Boolean);
+    }
+
     async function setQty(id, value) {
-        const index = cart.findIndex(item => Number(item.id) === Number(id));
-        if (index === -1) return;
+        const initialItem = cart.find(item => Number(item.id) === Number(id));
+        if (!initialItem) return false;
         const raw = String(value).trim();
         if (!/^\d+$/.test(raw)) {
             drawCart();
-            return;
+            openPosNotice({title: 'Số lượng không hợp lệ', message: 'Vui lòng nhập một số nguyên từ 0 trở lên. Nhập 0 nếu muốn xóa sản phẩm.', mode: 'info'});
+            return false;
         }
-        const qty = Number(raw);
-        if (!Number.isSafeInteger(qty) || qty > 1000) {
-            drawCart();
-            return;
-        }
-        if (qty > cart[index].qty) {
-            const selectedStore = document.getElementById('posStoreSelect').value;
+        const requestedQuantity = BigInt(raw);
+        const originalQuantity = Number(initialItem.qty);
+        if (requestedQuantity === BigInt(originalQuantity)) return true;
+        if (requestedQuantity > 0n) {
+            const storeId = document.getElementById('posStoreSelect').value;
             try {
                 await refreshPosStock();
             } catch (error) {
                 drawCart();
                 openPosNotice({title: 'Không kiểm tra được tồn kho', message: error.message, mode: 'info'});
-                return;
+                return false;
             }
-            if (document.getElementById('posStoreSelect').value !== selectedStore) return;
+            if (document.getElementById('posStoreSelect').value !== storeId) {
+                drawCart();
+                return false;
+            }
+            const remaining = getPosStock(id);
+            if (requestedQuantity > BigInt(remaining)) {
+                drawCart();
+                showStockWarning(initialItem.name, remaining, raw);
+                return false;
+            }
         }
-        const currentIndex = cart.findIndex(item => Number(item.id) === Number(id));
-        if (currentIndex < 0) return;
-        if (qty > getPosStock(id)) {
-            const name = cart[currentIndex].name;
-            drawCart();
-            showStockWarning(name, getPosStock(id));
-            return;
-        }
-        if (qty === 0) cart.splice(currentIndex, 1);
-        else cart[currentIndex].qty = qty;
+        const quantity = Number(requestedQuantity);
+        const current = cart.find(item => Number(item.id) === Number(id));
+        if (!current) return false;
+        if (quantity === 0) cart = cart.filter(item => Number(item.id) !== Number(id));
+        else current.qty = quantity;
         drawCart();
         markPendingCartChanged();
+        return true;
     }
 
     function drawCart() {
@@ -1298,7 +1349,7 @@ require ROOT_PATH . '/includes/header.php';
                     </div>
                     <div class="d-flex flex-column align-items-end gap-1">
                         <span class="num-font fw-bold text-dark" style="min-width:75px; text-align:right;">${fVND(i.price*i.qty)}</span>
-                        <div class="qty-stepper mt-1"><button class="qty-btn" onclick="uQty(${i.id},-1)"><i class="fa-solid fa-minus" style="font-size:10px"></i></button><input type="number" class="qty-input" value="${i.qty}" min="0" max="1000" step="1" inputmode="numeric" aria-label="Nhập số lượng" title="Nhập số lượng rồi nhấn Enter hoặc bấm ra ngoài" onchange="setQty(${i.id},this.value)" onkeydown="if(event.key === 'Enter'){event.preventDefault();this.blur();}" onclick="event.stopPropagation()"><button class="qty-btn" onclick="uQty(${i.id},1)"><i class="fa-solid fa-plus" style="font-size:10px"></i></button></div>
+                        <div class="qty-stepper mt-1"><button class="qty-btn" onclick="uQty(${i.id},-1)"><i class="fa-solid fa-minus" style="font-size:10px"></i></button><input type="text" class="qty-input" data-product-id="${i.id}" value="${i.qty}" inputmode="numeric" pattern="[0-9]*" aria-label="Nhập số lượng" title="Nhập số lượng rồi nhấn Enter hoặc bấm ra ngoài" onchange="commitPosQuantityInput(this,${i.id})" onkeydown="if(event.key === 'Enter'){event.preventDefault();this.blur();}" onclick="event.stopPropagation()"><button class="qty-btn" onclick="uQty(${i.id},1)"><i class="fa-solid fa-plus" style="font-size:10px"></i></button></div>
                     </div>
                 </div>`;
                 const cEl = document.getElementById('prod-'+i.id), bEl = document.getElementById('b-'+i.id);
@@ -1599,10 +1650,16 @@ require ROOT_PATH . '/includes/header.php';
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang chốt đơn...';
         try {
+            if (!await flushPosQuantityInputs()) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
+                return;
+            }
+            if (cart.length === 0) throw new Error('Giỏ hàng trống.');
             await refreshPosStock();
             const exceeding = cart.find(item => Number(item.qty) > getPosStock(item.id));
             if (exceeding) {
-                showStockWarning(exceeding.name, getPosStock(exceeding.id));
+                showStockWarning(exceeding.name, getPosStock(exceeding.id), exceeding.qty);
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
                 return;
@@ -1622,7 +1679,7 @@ require ROOT_PATH . '/includes/header.php';
             }
             window.location.assign(targetHref.split('?')[0] + '?id=' + orderId);
         } catch (error) {
-            alert('Lỗi: ' + error.message);
+            openPosNotice({title: 'Không thể chuyển thanh toán', message: error.message, mode: 'info'});
             btn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
         }
