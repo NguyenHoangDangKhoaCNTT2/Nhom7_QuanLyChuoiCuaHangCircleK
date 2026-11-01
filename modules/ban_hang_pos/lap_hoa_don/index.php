@@ -20,14 +20,52 @@ if (empty($_SESSION['user_id'])) {
     header('Location: ' . url('modules/tai_khoan_nhan_su/dang_nhap_phan_quyen/dang_nhap.php'));
     exit;
 }
-$stmtCurrentRole = $pdo->prepare("SELECT phanquyen_id FROM nguoidung WHERE id = ? AND trang_thai = 1 LIMIT 1");
+$stmtCurrentRole = $pdo->prepare("SELECT nd.phanquyen_id, nv.id AS nhanvien_id, nv.cuahang_id FROM nguoidung nd LEFT JOIN nhanvien nv ON nv.nguoidung_id = nd.id WHERE nd.id = ? AND nd.trang_thai = 1 LIMIT 1");
 $stmtCurrentRole->execute([(int)$_SESSION['user_id']]);
-$currentRoleId = $stmtCurrentRole->fetchColumn();
-if ($currentRoleId === false) {
+$invoiceCurrentUser = $stmtCurrentRole->fetch();
+if (!$invoiceCurrentUser) {
     http_response_code(403);
     exit('Tài khoản không hợp lệ hoặc đã bị khóa.');
 }
-$canCancelInvoices = in_array((int)$currentRoleId, [1, 2, 3], true);
+$currentRoleId = (int)$invoiceCurrentUser['phanquyen_id'];
+$canCancelInvoices = in_array($currentRoleId, [1, 2, 3], true);
+
+$invoiceAllStores = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+$invoiceAllowedStoreIds = [];
+if ($currentRoleId === 1) {
+    $invoiceAllowedStoreIds = array_map('intval', array_column($invoiceAllStores, 'id'));
+} elseif ($currentRoleId === 2) {
+    $invoiceLeaders = $pdo->query("SELECT nv.id, nv.ho_ten FROM nhanvien nv JOIN nguoidung nd ON nd.id = nv.nguoidung_id WHERE nd.phanquyen_id = 2 AND nd.trang_thai = 1 ORDER BY nv.id ASC")->fetchAll();
+    $invoiceAssignmentStores = $invoiceAllStores;
+    usort($invoiceAssignmentStores, static function ($a, $b) {
+        return strcmp(
+            hash('sha256', 'circlek-phan-cong-qltruong-2026-' . $a['ma_cua_hang']),
+            hash('sha256', 'circlek-phan-cong-qltruong-2026-' . $b['ma_cua_hang'])
+        );
+    });
+    if ($invoiceLeaders) {
+        foreach ($invoiceAssignmentStores as $index => $store) {
+            $leader = $invoiceLeaders[$index % count($invoiceLeaders)];
+            if ((int)$leader['id'] === (int)$invoiceCurrentUser['nhanvien_id']) {
+                $invoiceAllowedStoreIds[] = (int)$store['id'];
+            }
+        }
+    }
+} elseif (in_array($currentRoleId, [3, 4, 5], true)) {
+    $assignedStoreId = (int)($invoiceCurrentUser['cuahang_id'] ?? 0);
+    foreach ($invoiceAllStores as $store) {
+        if ((int)$store['id'] === $assignedStoreId) {
+            $invoiceAllowedStoreIds[] = $assignedStoreId;
+            break;
+        }
+    }
+}
+if (!$invoiceAllowedStoreIds) {
+    http_response_code(403);
+    exit('Tài khoản không có quyền xem hóa đơn của cửa hàng đang hoạt động.');
+}
+$invoiceStorePlaceholders = implode(', ', array_fill(0, count($invoiceAllowedStoreIds), '?'));
+$invoiceAllowedStoreLookup = array_fill_keys($invoiceAllowedStoreIds, true);
 
 try {
     $tenKhachColumn = $pdo->query("SHOW COLUMNS FROM hoadon LIKE 'ten_khach_nhap'")->fetch();
@@ -60,8 +98,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                  LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id
                                  LEFT JOIN khuyenmai km ON hd.khuyenmai_id = km.id
                                  LEFT JOIN thanhtoan tt ON hd.id = tt.hoadon_id
-                                 WHERE hd.id = ?");
-        $stmtHd->execute([$hd_id]);
+                                 WHERE hd.id = ? AND hd.cuahang_id IN ($invoiceStorePlaceholders)");
+        $stmtHd->execute(array_merge([$hd_id], $invoiceAllowedStoreIds));
         $order = $stmtHd->fetch();
 
         if (!$order) {
@@ -89,8 +127,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $hd_id = (int)($_POST['hoadon_id'] ?? 0);
         try {
             $pdo->beginTransaction();
-            $stmtOrder = $pdo->prepare("SELECT id, cuahang_id, trang_thai FROM hoadon WHERE id = ? FOR UPDATE");
-            $stmtOrder->execute([$hd_id]);
+            $stmtOrder = $pdo->prepare("SELECT id, cuahang_id, trang_thai FROM hoadon WHERE id = ? AND cuahang_id IN ($invoiceStorePlaceholders) FOR UPDATE");
+            $stmtOrder->execute(array_merge([$hd_id], $invoiceAllowedStoreIds));
             $orderForCancel = $stmtOrder->fetch();
             if (!$orderForCancel || !in_array($orderForCancel['trang_thai'], ['Hoàn thành', 'Đã thanh toán', 'Chờ thanh toán'], true)) {
                 throw new RuntimeException('Hóa đơn không tồn tại hoặc không thể hủy.');
@@ -119,15 +157,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 }
 
-$cuahang_list = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+$cuahang_list = array_values(array_filter($invoiceAllStores, static function ($store) use ($invoiceAllowedStoreLookup) {
+    return isset($invoiceAllowedStoreLookup[(int)$store['id']]);
+}));
 
 $sqlStats = "SELECT 
                 SUM(CASE WHEN trang_thai IN ('Hoàn thành', 'Đã thanh toán') THEN 1 ELSE 0 END) AS tong_don_thanh_cong,
                 SUM(CASE WHEN trang_thai IN ('Hoàn thành', 'Đã thanh toán') THEN khach_phai_tra ELSE 0 END) AS tong_doanh_thu,
                 SUM(CASE WHEN trang_thai IN ('Hoàn thành', 'Đã thanh toán') THEN tien_giam_gia ELSE 0 END) AS tong_giam_gia,
                 SUM(CASE WHEN trang_thai = 'Đã hủy' THEN 1 ELSE 0 END) AS tong_don_huy
-             FROM hoadon";
-$stats = $pdo->query($sqlStats)->fetch();
+             FROM hoadon WHERE cuahang_id IN ($invoiceStorePlaceholders)";
+$stmtStats = $pdo->prepare($sqlStats);
+$stmtStats->execute($invoiceAllowedStoreIds);
+$stats = $stmtStats->fetch();
 
 $tongDonThanhCong = (int)($stats['tong_don_thanh_cong'] ?? 0);
 $tongDonHuy = (int)($stats['tong_don_huy'] ?? 0);
@@ -136,37 +178,45 @@ $tongGiamGia = (float)($stats['tong_giam_gia'] ?? 0);
 $aov = $tongDonThanhCong > 0 ? round($tongDoanhThu / $tongDonThanhCong) : 0;
 $tiLeHuy = ($tongDonThanhCong + $tongDonHuy) > 0 ? round(($tongDonHuy / ($tongDonThanhCong + $tongDonHuy)) * 100, 1) : 0;
 
-$payStats = $pdo->query("SELECT COALESCE(tt.phuong_thuc, 'Tiền mặt') AS pthuc, 
+$stmtPayStats = $pdo->prepare("SELECT COALESCE(tt.phuong_thuc, 'Tiền mặt') AS pthuc, 
                                 COUNT(hd.id) AS so_don, 
                                 COALESCE(SUM(hd.khach_phai_tra), 0) AS tong_tien
                          FROM hoadon hd
                          LEFT JOIN thanhtoan tt ON hd.id = tt.hoadon_id
-                         WHERE hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán')
-                         GROUP BY pthuc")->fetchAll();
+                         WHERE hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán') AND hd.cuahang_id IN ($invoiceStorePlaceholders)
+                         GROUP BY pthuc");
+$stmtPayStats->execute($invoiceAllowedStoreIds);
+$payStats = $stmtPayStats->fetchAll();
 
-$branchStats = $pdo->query("SELECT ch.ten_cua_hang, 
+$stmtBranchStats = $pdo->prepare("SELECT ch.ten_cua_hang, 
                                    COUNT(hd.id) AS so_don, 
                                    COALESCE(SUM(CASE WHEN hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán') THEN hd.khach_phai_tra ELSE 0 END), 0) AS doanh_thu
                             FROM cuahang ch
                             LEFT JOIN hoadon hd ON ch.id = hd.cuahang_id
-                            WHERE ch.trang_thai = 1
+                            WHERE ch.trang_thai = 1 AND ch.id IN ($invoiceStorePlaceholders)
                             GROUP BY ch.id, ch.ten_cua_hang
-                            ORDER BY doanh_thu DESC")->fetchAll();
+                            ORDER BY doanh_thu DESC");
+$stmtBranchStats->execute($invoiceAllowedStoreIds);
+$branchStats = $stmtBranchStats->fetchAll();
 
-$tierStats = $pdo->query("SELECT COALESCE(ttd.hang_the, 'Khách lẻ') AS hang, 
+$stmtTierStats = $pdo->prepare("SELECT COALESCE(ttd.hang_the, 'Khách lẻ') AS hang, 
                                  COUNT(hd.id) AS so_don,
                                  COALESCE(SUM(hd.tien_giam_gia), 0) AS tong_giam
                           FROM hoadon hd
                           LEFT JOIN khachhang kh ON hd.khachhang_id = kh.id
                           LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id
-                          WHERE hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán')
-                          GROUP BY hang")->fetchAll();
+                          WHERE hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán') AND hd.cuahang_id IN ($invoiceStorePlaceholders)
+                          GROUP BY hang");
+$stmtTierStats->execute($invoiceAllowedStoreIds);
+$tierStats = $stmtTierStats->fetchAll();
 
-$priceTiers = $pdo->query("SELECT 
+$stmtPriceTiers = $pdo->prepare("SELECT 
         SUM(CASE WHEN khach_phai_tra < 50000 THEN 1 ELSE 0 END) AS tier_thap,
         SUM(CASE WHEN khach_phai_tra >= 50000 AND khach_phai_tra <= 100000 THEN 1 ELSE 0 END) AS tier_trung,
         SUM(CASE WHEN khach_phai_tra > 100000 THEN 1 ELSE 0 END) AS tier_cao
-    FROM hoadon WHERE trang_thai IN ('Hoàn thành', 'Đã thanh toán')")->fetch();
+    FROM hoadon WHERE trang_thai IN ('Hoàn thành', 'Đã thanh toán') AND cuahang_id IN ($invoiceStorePlaceholders)");
+$stmtPriceTiers->execute($invoiceAllowedStoreIds);
+$priceTiers = $stmtPriceTiers->fetch();
 
 $sqlOrders = "SELECT hd.*, ch.ten_cua_hang, nv.ho_ten AS ten_nv, 
                      COALESCE(NULLIF(TRIM(hd.ten_khach_nhap), ''), kh.ho_ten) AS ten_kh, kh.so_dien_thoai AS sdt_kh,
@@ -179,8 +229,11 @@ $sqlOrders = "SELECT hd.*, ch.ten_cua_hang, nv.ho_ten AS ten_nv,
               LEFT JOIN khachhang kh ON hd.khachhang_id = kh.id
               LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id
               LEFT JOIN thanhtoan tt ON hd.id = tt.hoadon_id
+              WHERE hd.cuahang_id IN ($invoiceStorePlaceholders)
               ORDER BY hd.id DESC";
-$orders = $pdo->query($sqlOrders)->fetchAll();
+$stmtOrders = $pdo->prepare($sqlOrders);
+$stmtOrders->execute($invoiceAllowedStoreIds);
+$orders = $stmtOrders->fetchAll();
 
 $insightToday = date('Y-m-d');
 $insightYesterday = date('Y-m-d', strtotime('-1 day'));
@@ -425,7 +478,7 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="title-icon" style="background: linear-gradient(135deg, var(--ocean), #6366f1)"><i class="fa-solid fa-file-invoice-dollar"></i></span>
                 Danh sách Hóa đơn & Chứng từ
             </h5>
-            <div class="panel-subtitle ms-5">Tra cứu, in lại phiếu thu và quản lý lịch sử thanh toán toàn chuỗi Nha Trang</div>
+            <div class="panel-subtitle ms-5">Tra cứu, in lại phiếu thu và quản lý lịch sử thanh toán trong phạm vi được phân quyền</div>
         </div>
         <div class="d-flex align-items-center gap-2">
             <button type="button" class="btn-ck btn-ck-analytics" onclick="openExecutiveHub('revenue')">
@@ -447,10 +500,12 @@ require ROOT_PATH . '/includes/header.php';
         </div>
         <div class="col-6 col-md-3">
             <select class="form-select" id="filterStore" onchange="filterInvoices()" style="height: 44px; border-radius: 10px;">
-                <option value="">🏪 Tất cả chi nhánh</option>
-                <?php foreach ($cuahang_list as $ch): ?>
-                    <option value="<?= htmlspecialchars($ch['ten_cua_hang']) ?>"><?= htmlspecialchars($ch['ten_cua_hang']) ?></option>
-                <?php endforeach; ?>
+                <option value=""><?= count($cuahang_list) === 1 ? '🏪 ' . htmlspecialchars($cuahang_list[0]['ten_cua_hang'], ENT_QUOTES, 'UTF-8') : ($currentRoleId === 1 ? '🏪 Tất cả chi nhánh' : '🏪 Các chi nhánh phụ trách') ?></option>
+                <?php if (count($cuahang_list) > 1): ?>
+                    <?php foreach ($cuahang_list as $ch): ?>
+                        <option value="<?= htmlspecialchars($ch['ten_cua_hang'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($ch['ten_cua_hang'], ENT_QUOTES, 'UTF-8') ?></option>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </select>
         </div>
         <div class="col-6 col-md-2">
@@ -642,7 +697,7 @@ require ROOT_PATH . '/includes/header.php';
                 <section class="invoice-insight-panel" data-invoice-insight="cancel" hidden>
                     <div class="row g-3 mb-3">
                         <div class="col-6"><div class="invoice-insight-card"><div class="invoice-insight-label">Đơn hủy hôm nay</div><div class="invoice-insight-value"><?= $insightTodayCanceled ?> đơn</div></div></div>
-                        <div class="col-6"><div class="invoice-insight-card"><div class="invoice-insight-label">Tỷ lệ hủy toàn hệ thống</div><div class="invoice-insight-value"><?= number_format($tiLeHuy, 1, ',', '.') ?>%</div></div></div>
+                        <div class="col-6"><div class="invoice-insight-card"><div class="invoice-insight-label">Tỷ lệ hủy trong phạm vi</div><div class="invoice-insight-value"><?= number_format($tiLeHuy, 1, ',', '.') ?>%</div></div></div>
                     </div>
                     <div class="d-flex justify-content-between small mb-2"><span class="text-muted fw-semibold">Tỷ lệ hóa đơn hoàn thành</span><strong><?= number_format($insightSuccessRate, 1, ',', '.') ?>%</strong></div>
                     <div class="invoice-insight-bar mb-3"><div style="width: <?= max(0, min(100, $insightSuccessRate)) ?>%; background: linear-gradient(90deg,#64748b,#94a3b8);"></div></div>
