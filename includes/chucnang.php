@@ -13,12 +13,14 @@ return [
         ['key' => 'sanpham', 'label' => 'Quản lý Sản phẩm', 'icon' => 'fa-boxes-stacked', 'color' => '#fbbf24', 'href' => 'modules/hang_hoa_kho/quan_ly_san_pham/index.php'],
         ['key' => 'nhapkho', 'label' => 'Nhập hàng vào kho', 'icon' => 'fa-dolly', 'color' => '#fbbf24', 'href' => 'modules/hang_hoa_kho/nhap_hang_vao_kho/index.php'],
         ['key' => 'dieuchuyen', 'label' => 'Điều chuyển kho', 'icon' => 'fa-right-left', 'color' => '#fbbf24', 'href' => 'modules/hang_hoa_kho/dieu_chuyen_kho/index.php'],
+        ['key' => 'tonkho_xem', 'label' => 'Xem tồn kho cửa hàng', 'icon' => 'fa-warehouse', 'color' => '#fbbf24', 'href' => 'modules/hang_hoa_kho/quan_ly_san_pham/index.php'],
     ]],
     ['label' => 'Bán hàng (POS)', 'nhom' => 'ban_hang', 'items' => [
         ['key' => 'pos', 'label' => 'Màn hình bán hàng (POS)', 'icon' => 'fa-cash-register', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/man_hinh_ban_hang/index.php'],
         ['key' => 'hoadon', 'label' => 'Lập hóa đơn', 'icon' => 'fa-file-invoice-dollar', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/lap_hoa_don/index.php'],
         ['key' => 'khuyenmai', 'label' => 'Quản lý Khuyến mãi', 'icon' => 'fa-ticket', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/quan_ly_khuyen_mai/index.php'],
         ['key' => 'thanhtoan', 'label' => 'Thanh toán đơn hàng', 'icon' => 'fa-credit-card', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/thanh_toan_don_hang/index.php'],
+        ['key' => 'xem_hoadon', 'label' => 'Xem hóa đơn', 'icon' => 'fa-receipt', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/xem_hoa_don/index.php'],
     ]],
     ['label' => 'Thống kê & Báo cáo', 'nhom' => 'thong_ke', 'items' => [
         ['key' => 'dashboard', 'label' => 'Dashboard thống kê cửa hàng', 'icon' => 'fa-chart-pie', 'color' => '#a78bfa', 'href' => 'modules/thong_ke_bao_cao/dashboard_cua_hang/index.php'],

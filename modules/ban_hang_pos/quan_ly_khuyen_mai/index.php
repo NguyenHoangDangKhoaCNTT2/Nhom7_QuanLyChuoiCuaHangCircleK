@@ -16,7 +16,22 @@ try {
     die(json_encode(['success' => false, 'message' => $e->getMessage()]));
 }
 
-try { $pdo->exec("ALTER TABLE khuyenmai ADD COLUMN so_luong_da_dung INT DEFAULT 0"); } catch (Exception $e) { }
+
+$vaiTro = $_SESSION['vai_tro'] ?? null;
+if (!is_array($vaiTro) || !in_array('khuyenmai', $vaiTro, true)) {
+    header('Location: ' . url('index.php'));
+    exit;
+}
+
+$khuVucKhuyenMai = null;
+if ((int)($_SESSION['phanquyen_id'] ?? 0) === 2) {
+    $stmtMe = $pdo->prepare("SELECT username FROM nguoidung WHERE id = ?");
+    $stmtMe->execute([(int)($_SESSION['user_id'] ?? 0)]);
+    if ($stmtMe->fetchColumn() !== 'qlt_nam') {
+        $khuVucKhuyenMai = layKhuVuc($pdo, (int)($_SESSION['user_id'] ?? 0));
+        if (empty($khuVucKhuyenMai)) $khuVucKhuyenMai = [0];
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json; charset=utf-8');
@@ -34,9 +49,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $bat_dau     = str_replace('T', ' ', trim($_POST['thoi_gian_bat_dau'] ?? ''));
             $ket_thuc    = str_replace('T', ' ', trim($_POST['thoi_gian_ket_thuc'] ?? ''));
 
-            if ($ten_km === '' || $ma_voucher === '' || $gia_tri <= 0) {
+                        if ($ten_km === '' || $ma_voucher === '' || $gia_tri <= 0) {
                 echo json_encode(['success' => false, 'message' => 'Vui lòng điền đầy đủ thông tin khuyến mãi hợp lệ!']);
                 exit;
+            }
+
+            if ($khuVucKhuyenMai !== null) {
+                if ($cuahang_id === null || !in_array($cuahang_id, $khuVucKhuyenMai, true)) {
+                    echo json_encode(['success' => false, 'message' => 'Bạn chỉ được tạo khuyến mãi cho cửa hàng thuộc khu vực mình phụ trách, không được chọn Toàn hệ thống!']);
+                    exit;
+                }
+                if ($id > 0) {
+                    $chkKm = $pdo->prepare("SELECT cuahang_id FROM khuyenmai WHERE id = ?");
+                    $chkKm->execute([$id]);
+                    $chCuaKm = $chkKm->fetchColumn();
+                    if ($chCuaKm === null || !in_array((int)$chCuaKm, $khuVucKhuyenMai, true)) {
+                        echo json_encode(['success' => false, 'message' => 'Bạn không có quyền sửa khuyến mãi này!']);
+                        exit;
+                    }
+                }
             }
 
             if ($id > 0) {
@@ -55,9 +86,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
-    if ($act === 'delete_promo') {
+       if ($act === 'delete_promo') {
         try {
             $id = (int)($_POST['id'] ?? 0);
+            if ($khuVucKhuyenMai !== null) {
+                $chkKm = $pdo->prepare("SELECT cuahang_id FROM khuyenmai WHERE id = ?");
+                $chkKm->execute([$id]);
+                $chCuaKm = $chkKm->fetchColumn();
+                if ($chCuaKm === null || !in_array((int)$chCuaKm, $khuVucKhuyenMai, true)) {
+                    echo json_encode(['success' => false, 'message' => 'Bạn không có quyền xóa khuyến mãi này!']);
+                    exit;
+                }
+            }
             $pdo->prepare("UPDATE hoadon SET khuyenmai_id = NULL WHERE khuyenmai_id = ?")->execute([$id]);
             $pdo->prepare("DELETE FROM khuyenmai WHERE id = ?")->execute([$id]);
             echo json_encode(['success' => true]);
@@ -69,12 +109,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-$cuahang_list = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
-$promos = $pdo->query("SELECT km.*, ch.ten_cua_hang, 
-                              (SELECT COUNT(*) FROM hoadon hd WHERE hd.khuyenmai_id = km.id AND hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán')) AS luot_dung_hd
-                       FROM khuyenmai km 
-                       LEFT JOIN cuahang ch ON km.cuahang_id = ch.id 
-                       ORDER BY km.id DESC")->fetchAll();
+if ($khuVucKhuyenMai !== null) {
+    $inKv = implode(',', array_fill(0, count($khuVucKhuyenMai), '?'));
+    $stmtChList = $pdo->prepare("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 AND id IN ($inKv) ORDER BY id ASC");
+    $stmtChList->execute($khuVucKhuyenMai);
+    $cuahang_list = $stmtChList->fetchAll();
+
+    $stmtPromos = $pdo->prepare("SELECT km.*, ch.ten_cua_hang,
+                                  (SELECT COUNT(*) FROM hoadon hd WHERE hd.khuyenmai_id = km.id AND hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán')) AS luot_dung_hd
+                           FROM khuyenmai km
+                           LEFT JOIN cuahang ch ON km.cuahang_id = ch.id
+                           WHERE km.cuahang_id IN ($inKv)
+                           ORDER BY km.id DESC");
+    $stmtPromos->execute($khuVucKhuyenMai);
+    $promos = $stmtPromos->fetchAll();
+} else {
+    $cuahang_list = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+    $promos = $pdo->query("SELECT km.*, ch.ten_cua_hang, 
+                                  (SELECT COUNT(*) FROM hoadon hd WHERE hd.khuyenmai_id = km.id AND hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán')) AS luot_dung_hd
+                           FROM khuyenmai km 
+                           LEFT JOIN cuahang ch ON km.cuahang_id = ch.id 
+                           ORDER BY km.id DESC")->fetchAll();
+}
 
 $now = time();
 $totalPromos = count($promos);
@@ -438,8 +494,8 @@ require ROOT_PATH . '/includes/header.php';
                         </div>
                         <div class="col-md-6">
                             <label class="form-label small fw-bold text-muted">CHI NHÁNH ÁP DỤNG</label>
-                            <select class="form-select" id="cuahang_id">
-                                <option value="">🌐 Toàn hệ thống (12 Chi nhánh)</option>
+                                <select class="form-select" id="cuahang_id">
+                                <?php if ($khuVucKhuyenMai === null): ?><option value="">🌐 Toàn hệ thống (12 Chi nhánh)</option><?php endif; ?>
                                 <?php foreach ($cuahang_list as $ch): ?>
                                     <option value="<?= $ch['id'] ?>">🏪 <?= htmlspecialchars($ch['ten_cua_hang']) ?></option>
                                 <?php endforeach; ?>

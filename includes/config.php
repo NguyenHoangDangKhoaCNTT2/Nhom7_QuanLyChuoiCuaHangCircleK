@@ -33,17 +33,30 @@ function initial(string $name): string {
     return function_exists('mb_strtoupper') ? mb_strtoupper($first) : strtoupper($first);
 }
 
+const CHUC_NANG_HOP_LE = ['phanquyen', 'cuahang', 'nhanvien', 'khachhang', 'nhanvien_khuvuc', 'duyet_nhansu', 'ca_truc',
+                           'sanpham', 'nhapkho', 'dieuchuyen', 'tonkho_xem',
+                           'pos', 'hoadon', 'khuyenmai', 'thanhtoan', 'xem_hoadon',
+                           'dashboard', 'sosanh', 'banchay', 'locbaocao'];
+
 function layVaiTro(PDO $pdo, int $nguoidung_id, int $phanquyen_id, string $username): array {
     $stmt = $pdo->prepare("SELECT nhom FROM phanquyen_tuychinh WHERE nguoidung_id = ?");
     $stmt->execute([$nguoidung_id]);
     $tuyChinh = $stmt->fetchAll(PDO::FETCH_COLUMN);
-    if (!empty($tuyChinh)) return $tuyChinh;
+
+    if (!empty($tuyChinh)) {
+        $conHopLe = array_values(array_intersect($tuyChinh, CHUC_NANG_HOP_LE));
+        if (count($conHopLe) === count($tuyChinh)) {
+            return $tuyChinh; 
+        }
+
+        $pdo->prepare("DELETE FROM phanquyen_tuychinh WHERE nguoidung_id = ?")->execute([$nguoidung_id]);
+    }
 
     $macDinh = [
         1 => ['phanquyen', 'cuahang', 'nhanvien', 'khachhang', 'sanpham', 'nhapkho', 'dieuchuyen', 'pos', 'hoadon', 'khuyenmai', 'thanhtoan', 'dashboard', 'sosanh', 'banchay', 'locbaocao', 'duyet_nhansu', 'nhanvien_khuvuc', 'ca_truc'], 
-        2 => ['dashboard', 'nhanvien_khuvuc', 'ca_truc'],   
-        3 => ['dashboard', 'nhanvien', 'ca_truc'], 
-        4 => ['pos', 'thanhtoan'],                 
+        2 => ['dashboard', 'nhanvien_khuvuc', 'ca_truc', 'hoadon', 'nhapkho', 'khuyenmai'], 
+        3 => ['dashboard', 'nhanvien', 'ca_truc', 'xem_hoadon', 'tonkho_xem'],
+        4 => ['pos', 'thanhtoan', 'xem_hoadon'],   
         5 => ['dieuchuyen', 'nhapkho'],          
     ];
     return $macDinh[$phanquyen_id] ?? ['dashboard'];

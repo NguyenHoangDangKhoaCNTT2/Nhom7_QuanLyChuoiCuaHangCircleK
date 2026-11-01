@@ -29,6 +29,18 @@ if ($currentRoleId === false) {
 }
 $canCancelInvoices = in_array((int)$currentRoleId, [1, 2, 3], true);
 
+$vaiTro = $_SESSION['vai_tro'] ?? null;
+if (!is_array($vaiTro) || !in_array('hoadon', $vaiTro, true)) {
+    header('Location: ' . url('index.php'));
+    exit;
+}
+
+$khuVucHoaDon = null;
+if ((int)$currentRoleId === 2) {
+    $khuVucHoaDon = layKhuVuc($pdo, (int)$_SESSION['user_id']);
+    if (empty($khuVucHoaDon)) $khuVucHoaDon = [0];
+}
+
 try {
     $tenKhachColumn = $pdo->query("SHOW COLUMNS FROM hoadon LIKE 'ten_khach_nhap'")->fetch();
     if (!$tenKhachColumn) {
@@ -92,8 +104,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $stmtOrder = $pdo->prepare("SELECT id, cuahang_id, trang_thai FROM hoadon WHERE id = ? FOR UPDATE");
             $stmtOrder->execute([$hd_id]);
             $orderForCancel = $stmtOrder->fetch();
-            if (!$orderForCancel || !in_array($orderForCancel['trang_thai'], ['Hoàn thành', 'Đã thanh toán', 'Chờ thanh toán'], true)) {
+                        if (!$orderForCancel || !in_array($orderForCancel['trang_thai'], ['Hoàn thành', 'Đã thanh toán', 'Chờ thanh toán'], true)) {
                 throw new RuntimeException('Hóa đơn không tồn tại hoặc không thể hủy.');
+            }
+            if ($khuVucHoaDon !== null && !in_array((int)$orderForCancel['cuahang_id'], $khuVucHoaDon, true)) {
+                throw new RuntimeException('Bạn không có quyền hủy hóa đơn ngoài khu vực mình phụ trách.');
             }
             $stmtItems = $pdo->prepare("SELECT sanpham_id, so_luong FROM chitiethoadon WHERE hoadon_id = ?");
             $stmtItems->execute([$hd_id]);
@@ -119,15 +134,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 }
 
-$cuahang_list = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+$coKv  = $khuVucHoaDon !== null;
+$dkKv  = $coKv ? ' AND cuahang_id IN (' . implode(',', array_fill(0, count($khuVucHoaDon), '?')) . ')' : '';
+$dkKvHd = $coKv ? ' AND hd.cuahang_id IN (' . implode(',', array_fill(0, count($khuVucHoaDon), '?')) . ')' : '';
+$dkKvCh = $coKv ? ' AND ch.id IN (' . implode(',', array_fill(0, count($khuVucHoaDon), '?')) . ')' : '';
+
+if ($coKv) {
+    $inKvSql = implode(',', array_fill(0, count($khuVucHoaDon), '?'));
+    $stmtChList = $pdo->prepare("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 AND id IN ($inKvSql) ORDER BY id ASC");
+    $stmtChList->execute($khuVucHoaDon);
+    $cuahang_list = $stmtChList->fetchAll();
+} else {
+    $cuahang_list = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+}
 
 $sqlStats = "SELECT 
                 SUM(CASE WHEN trang_thai IN ('Hoàn thành', 'Đã thanh toán') THEN 1 ELSE 0 END) AS tong_don_thanh_cong,
                 SUM(CASE WHEN trang_thai IN ('Hoàn thành', 'Đã thanh toán') THEN khach_phai_tra ELSE 0 END) AS tong_doanh_thu,
                 SUM(CASE WHEN trang_thai IN ('Hoàn thành', 'Đã thanh toán') THEN tien_giam_gia ELSE 0 END) AS tong_giam_gia,
                 SUM(CASE WHEN trang_thai = 'Đã hủy' THEN 1 ELSE 0 END) AS tong_don_huy
-             FROM hoadon";
-$stats = $pdo->query($sqlStats)->fetch();
+             FROM hoadon WHERE 1=1 $dkKv";
+$stmtStats = $pdo->prepare($sqlStats);
+$stmtStats->execute($coKv ? $khuVucHoaDon : []);
+$stats = $stmtStats->fetch();
 
 $tongDonThanhCong = (int)($stats['tong_don_thanh_cong'] ?? 0);
 $tongDonHuy = (int)($stats['tong_don_huy'] ?? 0);
@@ -136,37 +165,45 @@ $tongGiamGia = (float)($stats['tong_giam_gia'] ?? 0);
 $aov = $tongDonThanhCong > 0 ? round($tongDoanhThu / $tongDonThanhCong) : 0;
 $tiLeHuy = ($tongDonThanhCong + $tongDonHuy) > 0 ? round(($tongDonHuy / ($tongDonThanhCong + $tongDonHuy)) * 100, 1) : 0;
 
-$payStats = $pdo->query("SELECT COALESCE(tt.phuong_thuc, 'Tiền mặt') AS pthuc, 
+$stmtPay = $pdo->prepare("SELECT COALESCE(tt.phuong_thuc, 'Tiền mặt') AS pthuc, 
                                 COUNT(hd.id) AS so_don, 
                                 COALESCE(SUM(hd.khach_phai_tra), 0) AS tong_tien
                          FROM hoadon hd
                          LEFT JOIN thanhtoan tt ON hd.id = tt.hoadon_id
-                         WHERE hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán')
-                         GROUP BY pthuc")->fetchAll();
+                         WHERE hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán') $dkKvHd
+                         GROUP BY pthuc");
+$stmtPay->execute($coKv ? $khuVucHoaDon : []);
+$payStats = $stmtPay->fetchAll();
 
-$branchStats = $pdo->query("SELECT ch.ten_cua_hang, 
+$stmtBranch = $pdo->prepare("SELECT ch.ten_cua_hang, 
                                    COUNT(hd.id) AS so_don, 
                                    COALESCE(SUM(CASE WHEN hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán') THEN hd.khach_phai_tra ELSE 0 END), 0) AS doanh_thu
                             FROM cuahang ch
                             LEFT JOIN hoadon hd ON ch.id = hd.cuahang_id
-                            WHERE ch.trang_thai = 1
+                            WHERE ch.trang_thai = 1 $dkKvCh
                             GROUP BY ch.id, ch.ten_cua_hang
-                            ORDER BY doanh_thu DESC")->fetchAll();
+                            ORDER BY doanh_thu DESC");
+$stmtBranch->execute($coKv ? $khuVucHoaDon : []);
+$branchStats = $stmtBranch->fetchAll();
 
-$tierStats = $pdo->query("SELECT COALESCE(ttd.hang_the, 'Khách lẻ') AS hang, 
+$stmtTier = $pdo->prepare("SELECT COALESCE(ttd.hang_the, 'Khách lẻ') AS hang, 
                                  COUNT(hd.id) AS so_don,
                                  COALESCE(SUM(hd.tien_giam_gia), 0) AS tong_giam
                           FROM hoadon hd
                           LEFT JOIN khachhang kh ON hd.khachhang_id = kh.id
                           LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id
-                          WHERE hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán')
-                          GROUP BY hang")->fetchAll();
+                          WHERE hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán') $dkKvHd
+                          GROUP BY hang");
+$stmtTier->execute($coKv ? $khuVucHoaDon : []);
+$tierStats = $stmtTier->fetchAll();
 
-$priceTiers = $pdo->query("SELECT 
+$stmtPriceTiers = $pdo->prepare("SELECT 
         SUM(CASE WHEN khach_phai_tra < 50000 THEN 1 ELSE 0 END) AS tier_thap,
         SUM(CASE WHEN khach_phai_tra >= 50000 AND khach_phai_tra <= 100000 THEN 1 ELSE 0 END) AS tier_trung,
         SUM(CASE WHEN khach_phai_tra > 100000 THEN 1 ELSE 0 END) AS tier_cao
-    FROM hoadon WHERE trang_thai IN ('Hoàn thành', 'Đã thanh toán')")->fetch();
+    FROM hoadon WHERE trang_thai IN ('Hoàn thành', 'Đã thanh toán') $dkKv");
+$stmtPriceTiers->execute($coKv ? $khuVucHoaDon : []);
+$priceTiers = $stmtPriceTiers->fetch();
 
 $sqlOrders = "SELECT hd.*, ch.ten_cua_hang, nv.ho_ten AS ten_nv, 
                      COALESCE(NULLIF(TRIM(hd.ten_khach_nhap), ''), kh.ho_ten) AS ten_kh, kh.so_dien_thoai AS sdt_kh,
@@ -179,8 +216,11 @@ $sqlOrders = "SELECT hd.*, ch.ten_cua_hang, nv.ho_ten AS ten_nv,
               LEFT JOIN khachhang kh ON hd.khachhang_id = kh.id
               LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id
               LEFT JOIN thanhtoan tt ON hd.id = tt.hoadon_id
+              WHERE 1=1 $dkKvHd
               ORDER BY hd.id DESC";
-$orders = $pdo->query($sqlOrders)->fetchAll();
+$stmtOrders = $pdo->prepare($sqlOrders);
+$stmtOrders->execute($coKv ? $khuVucHoaDon : []);
+$orders = $stmtOrders->fetchAll();
 
 $insightToday = date('Y-m-d');
 $insightYesterday = date('Y-m-d', strtotime('-1 day'));

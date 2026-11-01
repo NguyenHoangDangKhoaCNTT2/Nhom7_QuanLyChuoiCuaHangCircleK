@@ -2,8 +2,9 @@
 require_once dirname(__DIR__, 3) . '/includes/config.php';
 
 $pageTitle  = 'Quản lý sản phẩm';
-$activeMenu = 'sanpham';
-
+$vaiTroTamThoi = $_SESSION['vai_tro'] ?? null;
+$activeMenu = (is_array($vaiTroTamThoi) && !in_array('sanpham', $vaiTroTamThoi, true) && in_array('tonkho_xem', $vaiTroTamThoi, true))
+    ? 'tonkho_xem' : 'sanpham';
 $db_host = 'localhost';
 $db_name = 'circlek';
 $db_user = 'root';
@@ -55,10 +56,24 @@ function getProductImageUrl($hinh_anh, $ma_sp, $imageDirPhysical, $projectBaseUr
     return '';
 }
 
+$vaiTro = $_SESSION['vai_tro'] ?? null;
+if (!is_array($vaiTro) || (!in_array('sanpham', $vaiTro, true) && !in_array('tonkho_xem', $vaiTro, true))) {
+    header('Location: ' . url('index.php'));
+    exit;
+}
+
+$laXemTonKhoQLCH = (int)($_SESSION['phanquyen_id'] ?? 0) === 3;
+$choCuaHangIdSP  = $laXemTonKhoQLCH ? (int)($_SESSION['cuahang_id'] ?? 0) : 0;
+
 $alertMsg  = '';
 $alertType = 'success';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $laXemTonKhoQLCH) {
+    $alertMsg  = 'Bạn chỉ được xem, không có quyền thêm/sửa/xóa sản phẩm!';
+    $alertType = 'danger';
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$laXemTonKhoQLCH) {
     $action = $_POST['action'] ?? '';
 
     try {
@@ -162,7 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $search     = trim($_GET['q'] ?? '');
 $filterDm   = (int)($_GET['danhmuc_id'] ?? 0);
-$filterCh   = (int)($_GET['cuahang_id'] ?? 0);
+$filterCh   = $laXemTonKhoQLCH ? $choCuaHangIdSP : (int)($_GET['cuahang_id'] ?? 0);
 $filterSt   = $_GET['status'] ?? '';
 $page       = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 if ($page < 1) $page = 1;
@@ -286,6 +301,7 @@ require ROOT_PATH . '/includes/header.php';
                 <?php endforeach; ?>
             </select>
         </div>
+                <?php if (!$laXemTonKhoQLCH): ?>
         <div class="col-auto">
             <select name="cuahang_id" class="form-select" onchange="this.form.submit()">
                 <option value="0">Tồn kho: Toàn chuỗi (12 CH)</option>
@@ -296,6 +312,7 @@ require ROOT_PATH . '/includes/header.php';
                 <?php endforeach; ?>
             </select>
         </div>
+        <?php endif; ?>
         <div class="col-auto">
             <select name="status" class="form-select" onchange="this.form.submit()">
                 <option value="">Tất cả trạng thái</option>
@@ -309,11 +326,13 @@ require ROOT_PATH . '/includes/header.php';
             <a href="index.php" class="btn-ck btn-ck-soft text-danger"><i class="fa-solid fa-rotate-left"></i> Đặt lại</a>
         </div>
         <?php endif; ?>
+                <?php if (!$laXemTonKhoQLCH): ?>
         <div class="col-auto ms-auto">
             <button type="button" class="btn-ck btn-ck-primary" onclick="openAddModal()">
-                <i class="fa-solid fa-plus"></i> Thêm sản phẩm
+                <i class="fa-solid fa-plus"></i> Thêm sảnphẩm
             </button>
         </div>
+        <?php endif; ?>
     </form>
 
     <div class="table-responsive">
@@ -377,7 +396,8 @@ require ROOT_PATH . '/includes/header.php';
                                 <span class="st-badge st-ok"><i class="fa-solid fa-circle-check"></i> Đang bán</span>
                             <?php endif; ?>
                         </td>
-                        <td class="text-end text-nowrap align-middle">
+                                                <td class="text-end text-nowrap align-middle">
+                            <?php if (!$laXemTonKhoQLCH): ?>
                             <div class="d-flex justify-content-end gap-2">
                                 <button type="button" class="action-icon-btn sm" title="Sửa"
                                     onclick='openEditModal(<?= json_encode([
@@ -398,6 +418,9 @@ require ROOT_PATH . '/includes/header.php';
                                     <i class="fa-solid fa-trash"></i>
                                 </button>
                             </div>
+                            <?php else: ?>
+                                <span class="text-muted small">Chỉ xem</span>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>
@@ -452,6 +475,7 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 </div>
 
+<?php if (!$laXemTonKhoQLCH): ?>
 <div class="modal fade" id="modalSanPham" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <form method="POST" action="" enctype="multipart/form-data" class="modal-content">
@@ -518,6 +542,7 @@ require ROOT_PATH . '/includes/header.php';
     <input type="hidden" name="action" value="delete">
     <input type="hidden" name="delete_id" id="deleteSpId" value="0">
 </form>
+<?php endif; ?>
 
 <script>
 const nextSuggestedSku = <?= json_encode($nextSku) ?>;
