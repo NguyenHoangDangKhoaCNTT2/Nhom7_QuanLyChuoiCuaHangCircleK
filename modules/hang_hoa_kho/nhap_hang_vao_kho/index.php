@@ -19,8 +19,25 @@ try {
     die('<div style="padding:20px;color:#e11d48;font-family:sans-serif;"><h3>Không thể kết nối Database!</h3></div>');
 }
 
+$vaiTro = $_SESSION['vai_tro'] ?? null;
+if (!is_array($vaiTro) || !in_array('nhapkho', $vaiTro, true)) {
+    header('Location: ' . url('index.php'));
+    exit;
+}
+
+$khuVucNhapKho = null;
+if ((int)($_SESSION['phanquyen_id'] ?? 0) === 2) {
+    $khuVucNhapKho = layKhuVuc($pdo, (int)($_SESSION['user_id'] ?? 0));
+    if (empty($khuVucNhapKho)) $khuVucNhapKho = [0];
+}
+
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_nv_kho') {
     $ch_id = (int)$_GET['cuahang_id'];
+    if ($khuVucNhapKho !== null && !in_array($ch_id, $khuVucNhapKho, true)) {
+        header('Content-Type: application/json');
+        echo json_encode([]);
+        exit;
+    }
     $stmt = $pdo->prepare("
         SELECT id, ho_ten, chuc_vu 
         FROM nhanvien 
@@ -85,6 +102,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $sls     = $_POST['sl'] ?? [];
         $gias    = $_POST['gia'] ?? [];
 
+               if ($khuVucNhapKho !== null && !in_array($cuahang_id, $khuVucNhapKho, true)) {
+            throw new Exception('Bạn chỉ được nhập hàng cho cửa hàng thuộc khu vực mình phụ trách!');
+        }
+
         if ($cuahang_id <= 0 || $nhacungcap_id <= 0 || $nguoi_nhap <= 0 || empty($sp_ids)) {
             throw new Exception('Vui lòng chọn đầy đủ thông tin Cửa hàng, Nhà cung cấp, Người nhập và ít nhất 1 sản phẩm!');
         }
@@ -130,7 +151,14 @@ $scriptName = $_SERVER['SCRIPT_NAME'];
 $projectBaseUrl = preg_replace('#/modules/.*$#', '', $scriptName);
 $imageDirPhysical = ROOT_PATH . '/assets/images/';
 
-$dsCuaHang   = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+if ($khuVucNhapKho !== null) {
+    $inKv = implode(',', array_fill(0, count($khuVucNhapKho), '?'));
+    $stmtDsCh = $pdo->prepare("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 AND id IN ($inKv) ORDER BY id ASC");
+    $stmtDsCh->execute($khuVucNhapKho);
+    $dsCuaHang = $stmtDsCh->fetchAll();
+} else {
+    $dsCuaHang = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+}
 $dsNcc       = $pdo->query("SELECT id, ten_ncc FROM nhacungcap ORDER BY ten_ncc ASC")->fetchAll();
 $dsSanPham   = $pdo->query("SELECT id, ma_san_pham, ten_san_pham, gia_nhap, hinh_anh FROM sanpham WHERE trang_thai = 1 ORDER BY ten_san_pham ASC")->fetchAll();
 
@@ -156,7 +184,17 @@ if ($page < 1) $page = 1;
 $limit  = 10;
 $offset = ($page - 1) * $limit;
 
-$totalRows = $pdo->query("SELECT COUNT(*) FROM phieunhap")->fetchColumn();
+$whereKv = '';
+$kvParams = [];
+if ($khuVucNhapKho !== null) {
+    $inKv = implode(',', array_fill(0, count($khuVucNhapKho), '?'));
+    $whereKv = "WHERE pn.cuahang_id IN ($inKv)";
+    $kvParams = $khuVucNhapKho;
+}
+
+$stmtTotal = $pdo->prepare("SELECT COUNT(*) FROM phieunhap pn $whereKv");
+$stmtTotal->execute($kvParams);
+$totalRows = $stmtTotal->fetchColumn();
 $totalPages = ceil($totalRows / $limit);
 
 $sqlHistory = "
@@ -165,10 +203,13 @@ $sqlHistory = "
     JOIN cuahang ch ON pn.cuahang_id = ch.id
     JOIN nhacungcap ncc ON pn.nhacungcap_id = ncc.id
     LEFT JOIN nhanvien nv ON pn.nguoi_nhap = nv.id
+    $whereKv
     ORDER BY pn.id DESC
     LIMIT $limit OFFSET $offset
 ";
-$dsLichSu = $pdo->query($sqlHistory)->fetchAll();
+$stmtHistory = $pdo->prepare($sqlHistory);
+$stmtHistory->execute($kvParams);
+$dsLichSu = $stmtHistory->fetchAll();
 
 function buildPageUrl($pageNum) {
     $gets = $_GET;

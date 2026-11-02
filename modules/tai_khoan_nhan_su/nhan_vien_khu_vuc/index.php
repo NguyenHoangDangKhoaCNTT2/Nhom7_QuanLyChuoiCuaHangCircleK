@@ -115,7 +115,17 @@ if ($filterCh > 0 && in_array($filterCh, $khuVuc, true)) {
     $params[] = $filterCh;
 }
 
-$stmt = $pdo->prepare("SELECT nv.*, ch.ten_cua_hang FROM nhanvien nv LEFT JOIN cuahang ch ON ch.id = nv.cuahang_id $where ORDER BY nv.cuahang_id ASC, nv.id ASC");
+$stmtDem = $pdo->prepare("SELECT COUNT(*) FROM nhanvien nv $where");
+$stmtDem->execute($params);
+$tongNhanVien = (int)$stmtDem->fetchColumn();
+
+$moiTrang = 5;
+$trang    = max(1, (int)($_GET['trang'] ?? 1));
+$tongTrang = max(1, (int)ceil($tongNhanVien / $moiTrang));
+if ($trang > $tongTrang) $trang = $tongTrang;
+$offset = ($trang - 1) * $moiTrang;
+
+$stmt = $pdo->prepare("SELECT nv.*, ch.ten_cua_hang FROM nhanvien nv LEFT JOIN cuahang ch ON ch.id = nv.cuahang_id $where ORDER BY nv.cuahang_id ASC, nv.id ASC LIMIT $moiTrang OFFSET $offset");
 $stmt->execute($params);
 $dsNhanVien = $stmt->fetchAll();
 
@@ -150,7 +160,7 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="title-icon" style="background: linear-gradient(135deg, var(--emerald), #059669)"><i class="fa-solid fa-people-roof"></i></span>
                 Nhân viên khu vực
             </h5>
-            <div class="panel-subtitle ms-5">Các cửa hàng bạn phụ trách <span class="ms-2 badge rounded-pill bg-light text-dark border" style="font-size:0.85rem;">Tổng: <?= count($dsNhanVien) ?> người</span></div>
+            <div class="panel-subtitle ms-5">Các cửa hàng bạn phụ trách <span class="ms-2 badge rounded-pill bg-light text-dark border" style="font-size:0.85rem;">Tổng: <?= $tongNhanVien ?> người</span></div>
         </div>
     </div>
 
@@ -188,12 +198,25 @@ require ROOT_PATH . '/includes/header.php';
                             <button type="button" class="action-icon-btn sm" title="Sửa" onclick='openEditModal(<?= json_encode($nv, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'><i class="fa-solid fa-pen"></i></button>
                             <button type="button" class="action-icon-btn sm" title="Đề xuất cho nghỉ" onclick="confirmXoa(<?= (int)$nv['id'] ?>, '<?= htmlspecialchars(addslashes($nv['ho_ten'])) ?>')"><i class="fa-solid fa-user-xmark"></i></button>
                         </div>
-                    </td>
+                                        </td>
                 </tr>
                 <?php endforeach; endif; ?>
             </tbody>
         </table>
     </div>
+    <?php if ($tongTrang > 1): ?>
+    <div class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-3">
+        <?php
+        $qs = $_GET; unset($qs['trang']);
+        $qsPrefix = ($s = http_build_query($qs)) !== '' ? $s . '&' : '';
+        ?>
+        <a href="?<?= $qsPrefix ?>trang=<?= max(1, $trang - 1) ?>" class="btn btn-sm btn-outline-secondary <?= $trang === 1 ? 'disabled' : '' ?>">Trước</a>
+        <?php for ($p = 1; $p <= $tongTrang; $p++): ?>
+            <a href="?<?= $qsPrefix ?>trang=<?= $p ?>" class="btn btn-sm <?= $p === $trang ? 'btn-danger' : 'btn-outline-secondary' ?>"><?= $p ?></a>
+        <?php endfor; ?>
+        <a href="?<?= $qsPrefix ?>trang=<?= min($tongTrang, $trang + 1) ?>" class="btn btn-sm btn-outline-secondary <?= $trang === $tongTrang ? 'disabled' : '' ?>">Sau</a>
+    </div>
+    <?php endif; ?>
 </div>
 
 <div class="bento-panel fade-up d-1 mt-4">

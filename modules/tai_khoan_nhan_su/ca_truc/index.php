@@ -49,6 +49,10 @@ if ($cuaHangId <= 0) {
     die('<div style="padding:20px;color:#e11d48;font-family:sans-serif;">Chưa có cửa hàng nào để quản lý ca trực.</div>');
 }
 
+$chucVuDuocGiao = $phanQuyenId === 3
+    ? ['Nhân Viên Bán Hàng', 'Nhân Viên Kho']
+    : ['Quản Lý CH', 'Nhân Viên Bán Hàng', 'Nhân Viên Kho'];
+
 $alertMsg = ''; $alertType = 'success';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -64,9 +68,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($nvId <= 0 || $tenCa === '' || $batDau === '' || $ketThuc === '') {
                 throw new Exception('Vui lòng nhập đầy đủ thông tin ca trực!');
             }
-            $chkNv = $pdo->prepare("SELECT COUNT(*) FROM nhanvien WHERE id = ? AND cuahang_id = ?");
-            $chkNv->execute([$nvId, $cuaHangId]);
-            if ((int)$chkNv->fetchColumn() === 0) throw new Exception('Nhân viên này không thuộc cửa hàng đang chọn!');
+                        $inCv = implode(',', array_fill(0, count($chucVuDuocGiao), '?'));
+            $chkNv = $pdo->prepare("SELECT COUNT(*) FROM nhanvien WHERE id = ? AND cuahang_id = ? AND chuc_vu IN ($inCv)");
+            $chkNv->execute(array_merge([$nvId, $cuaHangId], $chucVuDuocGiao));
+            if ((int)$chkNv->fetchColumn() === 0) throw new Exception('Bạn không được giao ca trực cho nhân viên này!');
 
             if ($id > 0) {
                 $pdo->prepare("UPDATE calamviec SET nhanvien_id=?, ten_ca=?, thoi_gian_bat_dau=?, thoi_gian_ket_thuc=? WHERE id=? AND cuahang_id=?")
@@ -97,8 +102,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$dsNhanVienCH = $pdo->prepare("SELECT id, ho_ten FROM nhanvien WHERE cuahang_id = ? ORDER BY ho_ten ASC");
-$dsNhanVienCH->execute([$cuaHangId]);
+$inCvDs = implode(',', array_fill(0, count($chucVuDuocGiao), '?'));
+$dsNhanVienCH = $pdo->prepare("SELECT id, ho_ten, chuc_vu FROM nhanvien WHERE cuahang_id = ? AND chuc_vu IN ($inCvDs) ORDER BY ho_ten ASC");
+$dsNhanVienCH->execute(array_merge([$cuaHangId], $chucVuDuocGiao));
 $dsNhanVienCH = $dsNhanVienCH->fetchAll();
 
 $dsCa = $pdo->prepare("SELECT cl.*, nv.ho_ten FROM calamviec cl JOIN nhanvien nv ON nv.id = cl.nhanvien_id WHERE cl.cuahang_id = ? ORDER BY cl.thoi_gian_bat_dau DESC");
