@@ -62,18 +62,37 @@ if (!is_array($vaiTro) || (!in_array('sanpham', $vaiTro, true) && !in_array('ton
     exit;
 }
 
-$laXemTonKhoQLCH = (int)($_SESSION['phanquyen_id'] ?? 0) === 3;
-$choCuaHangIdSP  = $laXemTonKhoQLCH ? (int)($_SESSION['cuahang_id'] ?? 0) : 0;
+$userCuahangIdSP = (int)($_SESSION['cuahang_id'] ?? 0);
+$userPhanquyenSP = (int)($_SESSION['phanquyen_id'] ?? 0);
+
+
+$coQuyenThaoTac = in_array('sanpham', $vaiTro, true);
+
+$biKhoaChiNhanh = ($userCuahangIdSP > 0 && ($userPhanquyenSP === 3 || $userPhanquyenSP === 5));
+$choCuaHangIdSP = $biKhoaChiNhanh ? $userCuahangIdSP : 0;
+
+$tenChiNhanhHienTai = '';
+$maChiNhanhHienTai  = '';
+if ($choCuaHangIdSP > 0) {
+    $stmtCH = $pdo->prepare("SELECT ma_cua_hang, ten_cua_hang FROM cuahang WHERE id = ?");
+    $stmtCH->execute([$choCuaHangIdSP]);
+    $chInfo = $stmtCH->fetch();
+    if ($chInfo) {
+        $maChiNhanhHienTai  = $chInfo['ma_cua_hang'];
+        $tenChiNhanhHienTai = $chInfo['ma_cua_hang'] . ' - ' . $chInfo['ten_cua_hang'];
+    }
+}
 
 $alertMsg  = '';
 $alertType = 'success';
+$savedData = [];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $laXemTonKhoQLCH) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$coQuyenThaoTac) {
     $alertMsg  = 'Bạn chỉ được xem, không có quyền thêm/sửa/xóa sản phẩm!';
     $alertType = 'danger';
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$laXemTonKhoQLCH) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $coQuyenThaoTac) {
     $action = $_POST['action'] ?? '';
 
     try {
@@ -87,8 +106,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$laXemTonKhoQLCH) {
             $trang_thai   = (int)($_POST['trang_thai'] ?? 1);
             $old_image    = trim($_POST['old_image'] ?? '');
 
+            $savedData = [
+                'id' => $id,
+                'ma_san_pham' => $ma_san_pham,
+                'ten_san_pham' => $ten_san_pham,
+                'danhmuc_id' => $danhmuc_id,
+                'gia_nhap' => $gia_nhap,
+                'gia_ban' => $gia_ban,
+                'trang_thai' => $trang_thai
+            ];
+
             if ($ma_san_pham === '' || $ten_san_pham === '' || $danhmuc_id <= 0) {
                 throw new Exception('Vui lòng nhập đầy đủ Mã sản phẩm, Tên sản phẩm và Danh mục!');
+            }
+
+            if ($gia_nhap < 0 || $gia_ban < 0) {
+                throw new Exception('Giá nhập và giá bán không được phép là số âm!');
             }
 
             $stmtCheck = $pdo->prepare("SELECT id FROM sanpham WHERE ma_san_pham = ? AND id != ?");
@@ -121,7 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$laXemTonKhoQLCH) {
                     WHERE id = ?
                 ");
                 $stmtUpdate->execute([$danhmuc_id, $ma_san_pham, $ten_san_pham, $gia_nhap, $gia_ban, $hinh_anh, $trang_thai, $id]);
-                $alertMsg = "Đã cập nhật sản phẩm <b>$ma_san_pham - $ten_san_pham</b> thành công!";
+                $alertMsg = "Đã cập nhật sản phẩm <b>$ma_san_pham - " . htmlspecialchars($ten_san_pham) . "</b> thành công!";
             } else {
                 $pdo->beginTransaction();
                 $stmtInsert = $pdo->prepare("
@@ -137,7 +170,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$laXemTonKhoQLCH) {
                     $stmtTk->execute([$newSpId, $st['id']]);
                 }
                 $pdo->commit();
-                $alertMsg = "Đã thêm mới sản phẩm <b>$ma_san_pham - $ten_san_pham</b> thành công!";
+                $alertMsg = "Đã thêm mới sản phẩm <b>$ma_san_pham - " . htmlspecialchars($ten_san_pham) . "</b> thành công!";
+                $savedData = [];
             }
         }
 
@@ -172,12 +206,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$laXemTonKhoQLCH) {
         }
         $alertMsg  = $ex->getMessage();
         $alertType = 'danger';
+        if ($action === 'save') {
+             echo "<script>
+                    window.onload = function() {
+                        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('modalSanPham'));
+                        modal.show();
+                    }
+                   </script>";
+        }
     }
 }
 
 $search     = trim($_GET['q'] ?? '');
 $filterDm   = (int)($_GET['danhmuc_id'] ?? 0);
-$filterCh   = $laXemTonKhoQLCH ? $choCuaHangIdSP : (int)($_GET['cuahang_id'] ?? 0);
+$filterCh   = $biKhoaChiNhanh ? $choCuaHangIdSP : (int)($_GET['cuahang_id'] ?? 0);
 $filterSt   = $_GET['status'] ?? '';
 $page       = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 if ($page < 1) $page = 1;
@@ -186,7 +228,14 @@ $limit      = 10;
 $dsDanhMuc = $pdo->query("SELECT id, ten_danh_muc FROM danhmuc ORDER BY id ASC")->fetchAll();
 $dsCuaHang = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
 
-$lastCodeRow = $pdo->query("SELECT ma_san_pham FROM sanpham WHERE ma_san_pham LIKE 'SP%' ORDER BY id DESC LIMIT 1")->fetch();
+$lastCodeRow = $pdo->query("
+    SELECT ma_san_pham 
+    FROM sanpham 
+    WHERE ma_san_pham LIKE 'SP%' 
+    ORDER BY CAST(SUBSTRING(ma_san_pham, 3) AS UNSIGNED) DESC 
+    LIMIT 1
+")->fetch();
+
 $nextSku = 'SP001';
 if ($lastCodeRow && preg_match('/SP(\d+)/i', $lastCodeRow['ma_san_pham'], $m)) {
     $nextSku = 'SP' . str_pad(((int)$m[1]) + 1, 3, '0', STR_PAD_LEFT);
@@ -276,7 +325,12 @@ require ROOT_PATH . '/includes/header.php';
             </div>
             <div>
                 <h4 class="panel-title mb-1 fw-bold fs-4" style="color: var(--ink-900);">Danh sách sản phẩm</h4>
-                <div class="panel-subtitle text-muted fs-6 mb-0">Danh mục hàng hóa, giá nhập/bán và tồn kho</div>
+                <div class="panel-subtitle text-muted fs-6 mb-0">
+                    Danh mục hàng hóa, giá nhập/bán và tồn kho
+                    <?php if ($biKhoaChiNhanh && !empty($tenChiNhanhHienTai)): ?>
+                        &bull; <span class="text-danger fw-semibold"><i class="fa-solid fa-store me-1"></i>Chi nhánh: <?= htmlspecialchars($tenChiNhanhHienTai) ?></span>
+                    <?php endif; ?>
+                </div>
             </div>
         </div>
     </div>
@@ -301,7 +355,14 @@ require ROOT_PATH . '/includes/header.php';
                 <?php endforeach; ?>
             </select>
         </div>
-                <?php if (!$laXemTonKhoQLCH): ?>
+        <?php if ($biKhoaChiNhanh): ?>
+        <div class="col-auto">
+            <div class="input-group" style="width: auto;">
+                <span class="input-group-text bg-light border-end-0 text-muted"><i class="fa-solid fa-store text-danger"></i></span>
+                <input type="text" class="form-control bg-light border-start-0 fw-semibold text-dark" value="Kho: <?= htmlspecialchars($tenChiNhanhHienTai ?: 'Chi nhánh của bạn') ?>" readonly style="pointer-events: none; min-width: 330px; width: auto;">
+            </div>
+        </div>
+        <?php else: ?>
         <div class="col-auto">
             <select name="cuahang_id" class="form-select" onchange="this.form.submit()">
                 <option value="0">Tồn kho: Toàn chuỗi (12 CH)</option>
@@ -326,10 +387,10 @@ require ROOT_PATH . '/includes/header.php';
             <a href="index.php" class="btn-ck btn-ck-soft text-danger"><i class="fa-solid fa-rotate-left"></i> Đặt lại</a>
         </div>
         <?php endif; ?>
-                <?php if (!$laXemTonKhoQLCH): ?>
+        <?php if ($coQuyenThaoTac): ?>
         <div class="col-auto ms-auto">
             <button type="button" class="btn-ck btn-ck-primary" onclick="openAddModal()">
-                <i class="fa-solid fa-plus"></i> Thêm sảnphẩm
+                <i class="fa-solid fa-plus"></i> Thêm sản phẩm
             </button>
         </div>
         <?php endif; ?>
@@ -344,7 +405,7 @@ require ROOT_PATH . '/includes/header.php';
                     <th class="text-nowrap">Danh mục</th>
                     <th class="text-end text-nowrap">Giá nhập</th>
                     <th class="text-end text-nowrap">Giá bán</th>
-                    <th class="text-end text-nowrap">Tồn kho <?= $filterCh > 0 ? '(CH)' : '(Chuỗi)' ?></th>
+                    <th class="text-end text-nowrap">Tồn kho <?= $filterCh > 0 ? (!empty($maChiNhanhHienTai) ? "($maChiNhanhHienTai)" : "(CH)") : "(Chuỗi)" ?></th>
                     <th class="text-center text-nowrap">Trạng thái</th>
                     <th class="text-end text-nowrap">Thao tác</th>
                 </tr>
@@ -366,14 +427,14 @@ require ROOT_PATH . '/includes/header.php';
                     <tr>
                         <td class="text-nowrap align-middle"><span class="order-code"><?= htmlspecialchars($sp['ma_san_pham']) ?></span></td>
                         <td class="align-middle">
-                            <div class="d-flex align-items-center gap-3" style="min-width: 280px;">
+                            <div class="d-flex align-items-center gap-3" style="min-width: 200px; max-width: 350px; white-space: normal;">
                                 <?php if ($imgUrl !== ''): ?>
                                     <img src="<?= htmlspecialchars($imgUrl) ?>" alt="<?= htmlspecialchars($sp['ten_san_pham']) ?>" 
-                                         style="width:72px;height:72px;object-fit:cover;border-radius:12px;border:1px solid var(--border-light);flex-shrink:0;box-shadow: 0 4px 8px rgba(0,0,0,0.06); transition: transform 0.2s ease-in-out; cursor: zoom-in;" 
+                                         style="width:56px;height:56px;object-fit:cover;border-radius:12px;border:1px solid var(--border-light);flex-shrink:0;box-shadow: 0 2px 4px rgba(0,0,0,0.06); transition: transform 0.2s ease-in-out; cursor: zoom-in;" 
                                          onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'"
                                          onclick="viewLargeImage('<?= htmlspecialchars($imgUrl) ?>', '<?= htmlspecialchars(addslashes($sp['ten_san_pham'])) ?>')">
                                 <?php else: ?>
-                                    <div class="d-flex align-items-center justify-content-center" style="background:#f8fafc;color:var(--ink-400);width:72px;height:72px;border-radius:12px;flex-shrink:0;border:1px dashed var(--border-subtle);font-size:1.8rem;">
+                                    <div class="d-flex align-items-center justify-content-center" style="background:#f8fafc;color:var(--ink-400);width:56px;height:56px;border-radius:12px;flex-shrink:0;border:1px dashed var(--border-subtle);font-size:1.4rem; display:flex; align-items:center; justify-content:center;">
                                         <i class="fa-solid fa-image text-muted"></i>
                                     </div>
                                 <?php endif; ?>
@@ -396,8 +457,8 @@ require ROOT_PATH . '/includes/header.php';
                                 <span class="st-badge st-ok"><i class="fa-solid fa-circle-check"></i> Đang bán</span>
                             <?php endif; ?>
                         </td>
-                                                <td class="text-end text-nowrap align-middle">
-                            <?php if (!$laXemTonKhoQLCH): ?>
+                        <td class="text-end text-nowrap align-middle">
+                            <?php if ($coQuyenThaoTac): ?>
                             <div class="d-flex justify-content-end gap-2">
                                 <button type="button" class="action-icon-btn sm" title="Sửa"
                                     onclick='openEditModal(<?= json_encode([
@@ -462,7 +523,6 @@ require ROOT_PATH . '/includes/header.php';
     <?php endif; ?>
 </div>
 
-<!-- Modal xem ảnh lớn -->
 <div class="modal fade" id="modalViewImage" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content" style="background: transparent; border: none; box-shadow: none;">
@@ -475,12 +535,12 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 </div>
 
-<?php if (!$laXemTonKhoQLCH): ?>
+<?php if ($coQuyenThaoTac): ?>
 <div class="modal fade" id="modalSanPham" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <form method="POST" action="" enctype="multipart/form-data" class="modal-content">
             <input type="hidden" name="action" value="save">
-            <input type="hidden" name="id" id="spId" value="0">
+            <input type="hidden" name="id" id="spId" value="<?= htmlspecialchars($savedData['id'] ?? 0) ?>">
             <input type="hidden" name="old_image" id="spOldImage" value="">
 
             <div class="modal-header">
@@ -491,34 +551,34 @@ require ROOT_PATH . '/includes/header.php';
                 <div class="row g-3">
                     <div class="col-md-4">
                         <label class="form-label fw-semibold" for="spMa">Mã sản phẩm </label>
-                        <input type="text" class="form-control" name="ma_san_pham" id="spMa" value="<?= htmlspecialchars($nextSku) ?>" required>
+                        <input type="text" class="form-control" name="ma_san_pham" id="spMa" value="<?= htmlspecialchars($savedData['ma_san_pham'] ?? $nextSku) ?>" required>
                     </div>
                     <div class="col-md-8">
                         <label class="form-label fw-semibold" for="spTen">Tên sản phẩm</label>
-                        <input type="text" class="form-control" name="ten_san_pham" id="spTen" required>
+                        <input type="text" class="form-control" name="ten_san_pham" id="spTen" value="<?= htmlspecialchars($savedData['ten_san_pham'] ?? '') ?>" required>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold" for="spDm">Danh mục </label>
                         <select class="form-select" name="danhmuc_id" id="spDm" required>
                             <?php foreach ($dsDanhMuc as $dm): ?>
-                                <option value="<?= $dm['id'] ?>"><?= htmlspecialchars($dm['ten_danh_muc']) ?></option>
+                                <option value="<?= $dm['id'] ?>" <?= (isset($savedData['danhmuc_id']) && $savedData['danhmuc_id'] == $dm['id']) ? 'selected' : '' ?>><?= htmlspecialchars($dm['ten_danh_muc']) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold" for="spTt">Trạng thái</label>
                         <select class="form-select" name="trang_thai" id="spTt">
-                            <option value="1">Đang bán</option>
-                            <option value="0">Ngừng bán</option>
+                            <option value="1" <?= (isset($savedData['trang_thai']) && $savedData['trang_thai'] == 1) ? 'selected' : '' ?>>Đang bán</option>
+                            <option value="0" <?= (isset($savedData['trang_thai']) && $savedData['trang_thai'] == 0) ? 'selected' : '' ?>>Ngừng bán</option>
                         </select>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold" for="spGiaNhap">Giá nhập (VND) </label>
-                        <input type="number" class="form-control" name="gia_nhap" id="spGiaNhap" min="0" step="100" required>
+                        <input type="number" class="form-control" name="gia_nhap" id="spGiaNhap" value="<?= htmlspecialchars($savedData['gia_nhap'] ?? '') ?>" min="0" step="100" required>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold" for="spGia">Giá bán (VND) </label>
-                        <input type="number" class="form-control" name="gia_ban" id="spGia" min="0" step="100" required>
+                        <input type="number" class="form-control" name="gia_ban" id="spGia" value="<?= htmlspecialchars($savedData['gia_ban'] ?? '') ?>" min="0" step="100" required>
                     </div>
                     <div class="col-md-12">
                         <label class="form-label fw-semibold" for="spFile">Hình ảnh sản phẩm</label>
@@ -550,11 +610,15 @@ const nextSuggestedSku = <?= json_encode($nextSku) ?>;
 function openAddModal() {
     document.getElementById('modalSanPhamTitle').innerText = 'Thêm sản phẩm mới';
     document.getElementById('spId').value = 0;
-    document.getElementById('spMa').value = nextSuggestedSku;
-    document.getElementById('spTen').value = '';
-    document.getElementById('spGiaNhap').value = '';
-    document.getElementById('spGia').value = '';
-    document.getElementById('spTt').value = '1';
+    
+    if (document.getElementById('spTen').value === '') {
+        document.getElementById('spMa').value = nextSuggestedSku;
+        document.getElementById('spTen').value = '';
+        document.getElementById('spGiaNhap').value = '';
+        document.getElementById('spGia').value = '';
+        document.getElementById('spTt').value = '1';
+    }
+    
     document.getElementById('spOldImage').value = '';
     document.getElementById('spFile').value = '';
     document.getElementById('spImgPreviewBox').classList.remove('d-flex');
@@ -612,14 +676,12 @@ function confirmDelete(id, name) {
     }
 }
 
-
 function viewLargeImage(url, title) {
     document.getElementById('largeImagePreview').src = url;
     document.getElementById('largeImageTitle').innerText = title;
     const modal = new bootstrap.Modal(document.getElementById('modalViewImage'));
     modal.show();
 }
-
 
 if (window.history.replaceState) {
     window.history.replaceState(null, null, window.location.href);
