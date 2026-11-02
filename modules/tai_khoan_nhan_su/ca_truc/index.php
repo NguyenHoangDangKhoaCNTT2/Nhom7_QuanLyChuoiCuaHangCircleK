@@ -179,7 +179,7 @@ require ROOT_PATH . '/includes/header.php';
                         <?php if ($ca['check_out']): ?>
                             <span class="text-danger"><?= date('H:i d/m', strtotime($ca['check_out'])) ?></span>
                         <?php else: ?>
-                            <form method="POST" action="" class="d-inline"><input type="hidden" name="action" value="checkout"><input type="hidden" name="id" value="<?= (int)$ca['id'] ?>"><input type="hidden" name="xem_cuahang" value="<?= $cuaHangId ?>"><button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2">Check-out</button></form>
+                        <form method="POST" action="" class="d-inline" id="formCheckout<?= (int)$ca['id'] ?>"><input type="hidden" name="action" value="checkout"><input type="hidden" name="id" value="<?= (int)$ca['id'] ?>"><input type="hidden" name="xem_cuahang" value="<?= $cuaHangId ?>"><button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" onclick="xacNhanCheckout('formCheckout<?= (int)$ca['id'] ?>', '<?= $ca['thoi_gian_ket_thuc'] ?>')">Check-out</button></form>
                         <?php endif; ?>
                     </td>
                     <td>
@@ -257,6 +257,17 @@ function confirmDelete(id) {
         document.getElementById('xoaCaId').value = id;
         document.getElementById('formXoaCa').submit();
     }
+}
+function xacNhanCheckout(formId, ketThucStr) {
+    const ketThuc = new Date(ketThucStr.replace(' ', 'T'));
+    const bayGio = new Date();
+    if (bayGio < ketThuc) {
+        const gioHienChu = ketThuc.toLocaleString('vi-VN', {hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric'});
+        if (!confirm('Ca này chưa tới giờ kết thúc (dự kiến ' + gioHienChu + '). Bạn có chắc chắn muốn check-out sớm không?')) {
+            return;
+        }
+    }
+    document.getElementById(formId).submit();
 }
 </script>
 
