@@ -94,6 +94,18 @@ if ($timKhach !== '') {
     $params[] = "%$timKhach%"; $params[] = "%$timKhach%"; $params[] = "%$timKhach%";
 }
 
+$soHoaDonMoiTrang = 10;
+$trangYeuCau = max(1, (int)($_GET['page'] ?? 1));
+$stmtDem = $pdo->prepare("SELECT COUNT(*)
+                          FROM hoadon hd
+                          LEFT JOIN khachhang kh ON kh.id = hd.khachhang_id
+                          $where");
+$stmtDem->execute($params);
+$tongSoHoaDon = (int)$stmtDem->fetchColumn();
+$tongSoTrang = max(1, (int)ceil($tongSoHoaDon / $soHoaDonMoiTrang));
+$trangHienTai = min($trangYeuCau, $tongSoTrang);
+$boQua = ($trangHienTai - 1) * $soHoaDonMoiTrang;
+
 $stmt = $pdo->prepare("SELECT hd.id, hd.ngay_tao, hd.tong_tien, hd.tien_giam_gia, hd.khach_phai_tra, hd.trang_thai,
                                COALESCE(NULLIF(TRIM(hd.ten_khach_nhap), ''), kh.ho_ten, 'Khách lẻ') AS ten_kh,
                                nv.ho_ten AS ten_nv
@@ -102,9 +114,19 @@ $stmt = $pdo->prepare("SELECT hd.id, hd.ngay_tao, hd.tong_tien, hd.tien_giam_gia
                         LEFT JOIN nhanvien nv ON nv.id = hd.nhanvien_id
                         $where
                         ORDER BY hd.ngay_tao DESC, hd.id DESC
-                        LIMIT 200");
+                        LIMIT $soHoaDonMoiTrang OFFSET $boQua");
 $stmt->execute($params);
 $dsHoaDon = $stmt->fetchAll();
+
+$duongDanTrang = static function (int $trang) use ($timKhach, $ngayXem): string {
+    $query = ['page' => $trang];
+    if ($timKhach !== '') $query['khach'] = $timKhach;
+    if ($ngayXem !== '') $query['ngay'] = $ngayXem;
+    return 'index.php?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+};
+$trangDau = max(1, $trangHienTai - 3);
+$trangCuoi = min($tongSoTrang, $trangDau + 6);
+$trangDau = max(1, $trangCuoi - 6);
 
 $tenCH = $pdo->prepare("SELECT ten_cua_hang FROM cuahang WHERE id = ?");
 $tenCH->execute([$cuaHangId]);
@@ -123,7 +145,7 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="title-icon" style="background: linear-gradient(135deg, var(--ocean), #6366f1)"><i class="fa-solid fa-receipt"></i></span>
                 Hóa đơn - <?= htmlspecialchars($tenCuaHang) ?>
             </h5>
-            <div class="panel-subtitle ms-5">Chỉ xem, không chỉnh sửa được - <span class="ms-2 badge rounded-pill bg-light text-dark border" style="font-size:0.85rem;">Tổng: <?= count($dsHoaDon) ?> hóa đơn</span></div>
+            <div class="panel-subtitle ms-5">Chỉ xem, không chỉnh sửa được - <span class="ms-2 badge rounded-pill bg-light text-dark border" style="font-size:0.85rem;">Tổng: <?= $tongSoHoaDon ?> hóa đơn</span></div>
         </div>
     </div>
 
@@ -159,6 +181,30 @@ require ROOT_PATH . '/includes/header.php';
             </tbody>
         </table>
     </div>
+    <?php if ($tongSoHoaDon > 0): ?>
+    <div class="pos-invoice-paging-summary">
+        Hiển thị <?= $boQua + 1 ?>–<?= min($boQua + $soHoaDonMoiTrang, $tongSoHoaDon) ?> / <?= $tongSoHoaDon ?> hóa đơn
+    </div>
+    <?php endif; ?>
+    <?php if ($tongSoTrang > 1): ?>
+    <nav class="pos-invoice-pagination" aria-label="Phân trang hóa đơn">
+        <?php if ($trangHienTai > 1): ?>
+            <a class="pos-invoice-page-btn" href="<?= htmlspecialchars($duongDanTrang($trangHienTai - 1), ENT_QUOTES, 'UTF-8') ?>">Trước</a>
+        <?php else: ?>
+            <span class="pos-invoice-page-btn is-disabled" aria-disabled="true">Trước</span>
+        <?php endif; ?>
+        <?php for ($trang = $trangDau; $trang <= $trangCuoi; $trang++): ?>
+            <a class="pos-invoice-page-btn <?= $trang === $trangHienTai ? 'is-active' : '' ?>"
+               href="<?= htmlspecialchars($duongDanTrang($trang), ENT_QUOTES, 'UTF-8') ?>"
+               <?= $trang === $trangHienTai ? 'aria-current="page"' : '' ?>><?= $trang ?></a>
+        <?php endfor; ?>
+        <?php if ($trangHienTai < $tongSoTrang): ?>
+            <a class="pos-invoice-page-btn" href="<?= htmlspecialchars($duongDanTrang($trangHienTai + 1), ENT_QUOTES, 'UTF-8') ?>">Sau</a>
+        <?php else: ?>
+            <span class="pos-invoice-page-btn is-disabled" aria-disabled="true">Sau</span>
+        <?php endif; ?>
+    </nav>
+    <?php endif; ?>
 </div>
 
 <div class="modal fade" id="modalChiTiet" tabindex="-1" aria-hidden="true">
@@ -176,6 +222,12 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
 <style>
+.pos-invoice-paging-summary { text-align: center; color: #64748b; font-size: .83rem; margin-top: 14px; }
+.pos-invoice-pagination { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; margin-bottom: 3px; }
+.pos-invoice-page-btn { min-width: 34px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 6px 11px; color: #475569; text-decoration: none; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; font-size: .9rem; line-height: 1.2; transition: border-color .15s, background-color .15s; }
+.pos-invoice-page-btn:hover { color: #e11d48; border-color: #e11d48; background: #fff1f2; }
+.pos-invoice-page-btn.is-active, .pos-invoice-page-btn.is-active:hover { background: #e11d48; border-color: #e11d48; color: #fff; font-weight: 700; }
+.pos-invoice-page-btn.is-disabled { color: #94a3b8; background: #f8fafc; cursor: not-allowed; }
 #modalChiTiet .modal-content { border: 0; border-radius: 18px; overflow: hidden; }
 #modalChiTiet .modal-header { border-bottom: 1px solid #e9eef5; }
 #modalChiTiet .modal-body { background: #f8fafc; }
