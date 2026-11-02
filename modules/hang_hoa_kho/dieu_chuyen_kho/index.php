@@ -303,7 +303,6 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="title-icon" style="background: linear-gradient(135deg, var(--ck-amber), #f97316)"><i class="fa-solid fa-right-left"></i></span>
                 Phiếu điều chuyển mới
             </h5>
-            <div class="panel-subtitle ms-5">Chuyển hàng từ kho này sang kho khác</div>
         </div>
     </div>
 

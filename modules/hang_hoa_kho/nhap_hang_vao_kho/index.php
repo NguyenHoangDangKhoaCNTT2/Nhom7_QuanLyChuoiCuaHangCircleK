@@ -337,7 +337,6 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="title-icon" style="background: linear-gradient(135deg, var(--ck-amber), #f97316)"><i class="fa-solid fa-dolly"></i></span>
                 Phiếu nhập kho mới
             </h5>
-            <div class="panel-subtitle ms-5">Tạo lệnh nhập hàng hóa từ nhà cung cấp vào chi nhánh</div>
         </div>
     </div>
 
