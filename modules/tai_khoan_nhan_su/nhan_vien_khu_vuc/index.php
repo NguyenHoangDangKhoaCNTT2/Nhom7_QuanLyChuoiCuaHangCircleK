@@ -258,7 +258,7 @@ require ROOT_PATH . '/includes/header.php';
             <input type="hidden" name="action" value="yc_them">
             <div class="modal-header">
                 <h5 class="modal-title fw-bold">Yêu cầu thêm nhân viên mới</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Đóng"></button>
             </div>
             <div class="modal-body">
                 <div class="alert alert-info py-2" style="font-size:0.85rem;">Yêu cầu này sẽ gửi cho Giám Đốc duyệt, nhân viên chỉ chính thức được thêm sau khi duyệt.</div>

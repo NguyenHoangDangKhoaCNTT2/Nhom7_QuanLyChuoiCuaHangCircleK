@@ -68,10 +68,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($nvId <= 0 || $tenCa === '' || $batDau === '' || $ketThuc === '') {
                 throw new Exception('Vui lòng nhập đầy đủ thông tin ca trực!');
             }
-                        $inCv = implode(',', array_fill(0, count($chucVuDuocGiao), '?'));
+            $inCv = implode(',', array_fill(0, count($chucVuDuocGiao), '?'));
             $chkNv = $pdo->prepare("SELECT COUNT(*) FROM nhanvien WHERE id = ? AND cuahang_id = ? AND chuc_vu IN ($inCv)");
             $chkNv->execute(array_merge([$nvId, $cuaHangId], $chucVuDuocGiao));
             if ((int)$chkNv->fetchColumn() === 0) throw new Exception('Bạn không được giao ca trực cho nhân viên này!');
+
+            $chkTrung = $pdo->prepare("SELECT COUNT(*) FROM calamviec WHERE nhanvien_id = ? AND thoi_gian_bat_dau = ? AND id != ?");
+            $chkTrung->execute([$nvId, $batDau, $id]);
+            if ((int)$chkTrung->fetchColumn() > 0) {
+                throw new Exception('Giờ trực không được trùng! Nhân viên này đã có 1 ca khác bắt đầu cùng thời điểm.');
+            }
 
             if ($id > 0) {
                 $pdo->prepare("UPDATE calamviec SET nhanvien_id=?, ten_ca=?, thoi_gian_bat_dau=?, thoi_gian_ket_thuc=? WHERE id=? AND cuahang_id=?")
@@ -125,7 +131,7 @@ require ROOT_PATH . '/includes/header.php';
 <div class="alert alert-<?= htmlspecialchars($alertType) ?> alert-dismissible fade show rounded-4 border-0 shadow-sm mb-3" role="alert">
     <i class="fa-solid <?= $alertType === 'success' ? 'fa-circle-check' : 'fa-triangle-exclamation' ?> me-2"></i>
     <?= $alertMsg ?>
-    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Đóng"></button>
 </div>
 <?php endif; ?>
 
@@ -173,7 +179,7 @@ require ROOT_PATH . '/includes/header.php';
                         <?php if ($ca['check_out']): ?>
                             <span class="text-danger"><?= date('H:i d/m', strtotime($ca['check_out'])) ?></span>
                         <?php else: ?>
-                            <form method="POST" action="" class="d-inline"><input type="hidden" name="action" value="checkout"><input type="hidden" name="id" value="<?= (int)$ca['id'] ?>"><input type="hidden" name="xem_cuahang" value="<?= $cuaHangId ?>"><button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2">Check-out</button></form>
+                        <form method="POST" action="" class="d-inline" id="formCheckout<?= (int)$ca['id'] ?>"><input type="hidden" name="action" value="checkout"><input type="hidden" name="id" value="<?= (int)$ca['id'] ?>"><input type="hidden" name="xem_cuahang" value="<?= $cuaHangId ?>"><button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" onclick="xacNhanCheckout('formCheckout<?= (int)$ca['id'] ?>', '<?= $ca['thoi_gian_ket_thuc'] ?>')">Check-out</button></form>
                         <?php endif; ?>
                     </td>
                     <td>
@@ -197,7 +203,7 @@ require ROOT_PATH . '/includes/header.php';
             <input type="hidden" name="xem_cuahang" value="<?= $cuaHangId ?>">
             <div class="modal-header">
                 <h5 class="modal-title fw-bold" id="caTitle">Thêm ca trực</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Đóng"></button>     
             </div>
             <div class="modal-body">
                 <div class="row g-3">
@@ -251,6 +257,17 @@ function confirmDelete(id) {
         document.getElementById('xoaCaId').value = id;
         document.getElementById('formXoaCa').submit();
     }
+}
+function xacNhanCheckout(formId, ketThucStr) {
+    const ketThuc = new Date(ketThucStr.replace(' ', 'T'));
+    const bayGio = new Date();
+    if (bayGio < ketThuc) {
+        const gioHienChu = ketThuc.toLocaleString('vi-VN', {hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric'});
+        if (!confirm('Ca này chưa tới giờ kết thúc (dự kiến ' + gioHienChu + '). Bạn có chắc chắn muốn check-out sớm không?')) {
+            return;
+        }
+    }
+    document.getElementById(formId).submit();
 }
 </script>
 

@@ -21,6 +21,7 @@ return [
         ['key' => 'khuyenmai', 'label' => 'Quản lý Khuyến mãi', 'icon' => 'fa-ticket', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/quan_ly_khuyen_mai/index.php'],
         ['key' => 'thanhtoan', 'label' => 'Thanh toán đơn hàng', 'icon' => 'fa-credit-card', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/thanh_toan_don_hang/index.php'],
         ['key' => 'xem_hoadon', 'label' => 'Xem hóa đơn', 'icon' => 'fa-receipt', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/xem_hoa_don/index.php'],
+        ['key' => 'xem_khuyenmai', 'label' => 'Xem khuyến mãi', 'icon' => 'fa-ticket', 'color' => '#38bdf8', 'href' => 'modules/ban_hang_pos/quan_ly_khuyen_mai/index.php'],
     ]],
     ['label' => 'Thống kê & Báo cáo', 'nhom' => 'thong_ke', 'items' => [
         ['key' => 'dashboard', 'label' => 'Dashboard thống kê cửa hàng', 'icon' => 'fa-chart-pie', 'color' => '#a78bfa', 'href' => 'modules/thong_ke_bao_cao/dashboard_cua_hang/index.php'],

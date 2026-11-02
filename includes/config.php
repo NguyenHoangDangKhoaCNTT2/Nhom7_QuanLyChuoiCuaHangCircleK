@@ -35,7 +35,7 @@ function initial(string $name): string {
 
 const CHUC_NANG_HOP_LE = ['phanquyen', 'cuahang', 'nhanvien', 'khachhang', 'nhanvien_khuvuc', 'duyet_nhansu', 'ca_truc',
                            'sanpham', 'nhapkho', 'dieuchuyen', 'tonkho_xem',
-                           'pos', 'hoadon', 'khuyenmai', 'thanhtoan', 'xem_hoadon',
+                           'pos', 'hoadon', 'khuyenmai', 'xem_khuyenmai', 'thanhtoan', 'xem_hoadon',
                            'dashboard', 'sosanh', 'banchay', 'locbaocao'];
 
 function layVaiTro(PDO $pdo, int $nguoidung_id, int $phanquyen_id, string $username): array {
@@ -55,7 +55,7 @@ function layVaiTro(PDO $pdo, int $nguoidung_id, int $phanquyen_id, string $usern
     $macDinh = [
         1 => ['phanquyen', 'cuahang', 'nhanvien', 'khachhang', 'sanpham', 'nhapkho', 'dieuchuyen', 'pos', 'hoadon', 'khuyenmai', 'thanhtoan', 'dashboard', 'sosanh', 'banchay', 'locbaocao', 'duyet_nhansu', 'nhanvien_khuvuc', 'ca_truc'], 
         2 => ['dashboard', 'nhanvien_khuvuc', 'ca_truc', 'hoadon', 'nhapkho', 'khuyenmai'], 
-        3 => ['dashboard', 'nhanvien', 'ca_truc', 'xem_hoadon', 'tonkho_xem'],
+        3 => ['dashboard', 'nhanvien', 'ca_truc', 'xem_hoadon', 'tonkho_xem', 'xem_khuyenmai'],
         4 => ['pos', 'thanhtoan', 'xem_hoadon'],   
         5 => ['dieuchuyen', 'nhapkho'],          
     ];

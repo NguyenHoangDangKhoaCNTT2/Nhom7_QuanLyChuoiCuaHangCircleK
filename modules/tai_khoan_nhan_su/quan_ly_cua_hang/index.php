@@ -192,7 +192,7 @@ require ROOT_PATH . '/includes/header.php';
             <input type="hidden" name="id" id="chId" value="0">
             <div class="modal-header">
                 <h5 class="modal-title fw-bold" id="modalCuaHangTitle">Thêm cửa hàng mới</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Đóng"></button>
             </div>
             <div class="modal-body">
                 <div class="row g-3">

@@ -18,10 +18,13 @@ try {
 
 
 $vaiTro = $_SESSION['vai_tro'] ?? null;
-if (!is_array($vaiTro) || !in_array('khuyenmai', $vaiTro, true)) {
+if (!is_array($vaiTro) || (!in_array('khuyenmai', $vaiTro, true) && !in_array('xem_khuyenmai', $vaiTro, true))) {
     header('Location: ' . url('index.php'));
     exit;
 }
+
+$laXemKhuyenMaiQLCH = (int)($_SESSION['phanquyen_id'] ?? 0) === 3;
+$choCuaHangIdKM     = $laXemKhuyenMaiQLCH ? (int)($_SESSION['cuahang_id'] ?? 0) : 0;
 
 $khuVucKhuyenMai = null;
 if ((int)($_SESSION['phanquyen_id'] ?? 0) === 2) {
@@ -33,7 +36,13 @@ if ((int)($_SESSION['phanquyen_id'] ?? 0) === 2) {
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $laXemKhuyenMaiQLCH) {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['success' => false, 'message' => 'Bạn chỉ được xem, không có quyền thêm/sửa/xóa khuyến mãi!']);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && !$laXemKhuyenMaiQLCH) {
     header('Content-Type: application/json; charset=utf-8');
     $act = $_POST['action'];
 
@@ -109,7 +118,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-if ($khuVucKhuyenMai !== null) {
+if ($laXemKhuyenMaiQLCH) {
+    $stmtChList = $pdo->prepare("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 AND id = ? ORDER BY id ASC");
+    $stmtChList->execute([$choCuaHangIdKM]);
+    $cuahang_list = $stmtChList->fetchAll();
+
+    $stmtPromos = $pdo->prepare("SELECT km.*, ch.ten_cua_hang,
+                                  (SELECT COUNT(*) FROM hoadon hd WHERE hd.khuyenmai_id = km.id AND hd.trang_thai IN ('Hoàn thành', 'Đã thanh toán')) AS luot_dung_hd
+                           FROM khuyenmai km
+                           LEFT JOIN cuahang ch ON km.cuahang_id = ch.id
+                           WHERE km.cuahang_id = ? OR km.cuahang_id IS NULL
+                           ORDER BY km.id DESC");
+    $stmtPromos->execute([$choCuaHangIdKM]);
+    $promos = $stmtPromos->fetchAll();
+} elseif ($khuVucKhuyenMai !== null) {
     $inKv = implode(',', array_fill(0, count($khuVucKhuyenMai), '?'));
     $stmtChList = $pdo->prepare("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 AND id IN ($inKv) ORDER BY id ASC");
     $stmtChList->execute($khuVucKhuyenMai);
@@ -368,7 +390,9 @@ require ROOT_PATH . '/includes/header.php';
         </div>
         <div class="d-flex align-items-center gap-2">
             <a href="../man_hinh_ban_hang/index.php" class="btn-ck btn-ck-soft text-decoration-none"><i class="fa-solid fa-cash-register me-1"></i> Mở màn hình POS</a>
+            <?php if (!$laXemKhuyenMaiQLCH): ?>
             <button type="button" class="btn-ck btn-ck-primary" onclick="openPromoModal()"><i class="fa-solid fa-plus me-1"></i> Thêm Voucher mới</button>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -452,7 +476,8 @@ require ROOT_PATH . '/includes/header.php';
                             <?= $km['status_label'] ?>
                         </span>
                     </td>
-                    <td class="text-center">
+                                        <td class="text-center">
+                        <?php if (!$laXemKhuyenMaiQLCH): ?>
                         <button type="button" class="btn btn-sm btn-light border text-primary me-1" title="Chỉnh sửa"
                                 onclick='editPromo(<?= json_encode($km, JSON_UNESCAPED_UNICODE) ?>)'>
                             <i class="fa-solid fa-pen-to-square"></i>
@@ -461,6 +486,9 @@ require ROOT_PATH . '/includes/header.php';
                                 onclick="deletePromo(<?= (int)$km['id'] ?>, '<?= htmlspecialchars(addslashes($km['ma_voucher'])) ?>')">
                             <i class="fa-solid fa-trash-can"></i>
                         </button>
+                        <?php else: ?>
+                            <span class="text-muted small">Chỉ xem</span>
+                        <?php endif; ?>
                     </td>
                 </tr>
                 <?php endforeach; ?>
