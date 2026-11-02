@@ -342,7 +342,7 @@ require ROOT_PATH . '/includes/header.php';
                 </select>
             </div>
             <div class="col-lg-4 col-xl-4">
-                <label class="form-label fw-semibold">Người thực hiện</label>
+                <label class="form-label fw-semibold">Nhân viên thực hiện</label>
                 <?php if ($userPhanquyen === 5 || $userPhanquyen === 3): ?>
                     <?php 
                         $stmtTenNv = $pdo->prepare("SELECT id, ho_ten FROM nhanvien WHERE nguoidung_id = ?");
