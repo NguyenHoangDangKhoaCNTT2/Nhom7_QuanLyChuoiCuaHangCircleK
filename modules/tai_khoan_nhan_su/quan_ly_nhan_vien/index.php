@@ -149,7 +149,7 @@ require ROOT_PATH . '/includes/header.php';
 <div class="alert alert-<?= htmlspecialchars($alertType) ?> alert-dismissible fade show rounded-4 border-0 shadow-sm mb-3" role="alert">
     <i class="fa-solid <?= $alertType === 'success' ? 'fa-circle-check' : 'fa-triangle-exclamation' ?> me-2"></i>
     <?= $alertMsg ?>
-    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Đóng"></button>
 </div>
 <?php endif; ?>
 
@@ -240,7 +240,7 @@ require ROOT_PATH . '/includes/header.php';
             <input type="hidden" name="id" id="nvId" value="0">
             <div class="modal-header">
                 <h5 class="modal-title fw-bold" id="modalNhanVienTitle">Thêm nhân viên mới</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Đóng"></button>
             </div>
             <div class="modal-body">
                 <div class="row g-3">
