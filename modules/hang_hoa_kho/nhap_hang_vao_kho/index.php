@@ -25,19 +25,45 @@ if (!is_array($vaiTro) || !in_array('nhapkho', $vaiTro, true)) {
     exit;
 }
 
+$userCuahangId = (int)($_SESSION['cuahang_id'] ?? 0);
+$userPhanquyen = (int)($_SESSION['phanquyen_id'] ?? 0);
+
+if ($userCuahangId === 0 || $userPhanquyen === 0) {
+    $stmtUser = $pdo->prepare("
+        SELECT nd.phanquyen_id, nv.cuahang_id 
+        FROM nguoidung nd 
+        LEFT JOIN nhanvien nv ON nd.id = nv.nguoidung_id 
+        WHERE nd.id = ?
+    ");
+    $stmtUser->execute([(int)($_SESSION['user_id'] ?? 0)]);
+    $uData = $stmtUser->fetch();
+    if ($uData) {
+        if ($userPhanquyen === 0) $userPhanquyen = (int)$uData['phanquyen_id'];
+        if ($userCuahangId === 0) $userCuahangId = (int)$uData['cuahang_id'];
+    }
+}
+
 $khuVucNhapKho = null;
-if ((int)($_SESSION['phanquyen_id'] ?? 0) === 2) {
+if ($userPhanquyen === 2) {
     $khuVucNhapKho = layKhuVuc($pdo, (int)($_SESSION['user_id'] ?? 0));
     if (empty($khuVucNhapKho)) $khuVucNhapKho = [0];
 }
 
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_nv_kho') {
     $ch_id = (int)$_GET['cuahang_id'];
-    if ($khuVucNhapKho !== null && !in_array($ch_id, $khuVucNhapKho, true)) {
+
+    if ($userPhanquyen === 3 || $userPhanquyen === 5) {
+        if ($ch_id !== $userCuahangId) {
+            header('Content-Type: application/json');
+            echo json_encode([]);
+            exit;
+        }
+    } elseif ($khuVucNhapKho !== null && !in_array($ch_id, $khuVucNhapKho, true)) {
         header('Content-Type: application/json');
         echo json_encode([]);
         exit;
     }
+
     $stmt = $pdo->prepare("
         SELECT id, ho_ten, chuc_vu 
         FROM nhanvien 
@@ -60,12 +86,15 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_ctpn') {
     ");
     $stmt->execute([$pn_id]);
     $details = $stmt->fetchAll();
-    
+
     $scriptName = $_SERVER['SCRIPT_NAME'];
     $projectBaseUrl = preg_replace('#/modules/.*$#', '', $scriptName);
     $imageDirPhysical = ROOT_PATH . '/assets/images/';
-    
+
     foreach ($details as &$d) {
+        $d['ten_san_pham'] = htmlspecialchars($d['ten_san_pham']);
+        $d['ma_san_pham']  = htmlspecialchars($d['ma_san_pham']);
+
         $imgUrl = '';
         if (!empty($d['hinh_anh'])) {
             $cleanPath = ltrim($d['hinh_anh'], '/');
@@ -81,7 +110,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_ctpn') {
         }
         $d['img_url'] = $imgUrl;
     }
-    
+
     header('Content-Type: application/json');
     echo json_encode($details);
     exit;
@@ -92,17 +121,25 @@ $alertType = 'success';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_pn') {
     try {
-        $cuahang_id    = (int)($_POST['cuahang_id'] ?? 0);
+        if ($userPhanquyen === 3 || $userPhanquyen === 5) {
+            $cuahang_id = $userCuahangId;
+        } else {
+            $cuahang_id = (int)($_POST['cuahang_id'] ?? 0);
+        }
+
         $nhacungcap_id = (int)($_POST['nhacungcap_id'] ?? 0);
         $nguoi_nhap    = (int)($_POST['nguoi_nhap'] ?? 0);
         $ngay_nhap     = trim($_POST['ngay_nhap'] ?? date('Y-m-d H:i:s'));
-        $tong_tien     = (float)($_POST['tong_tien_hidden'] ?? 0);
-        
+
         $sp_ids  = $_POST['sp_id'] ?? [];
         $sls     = $_POST['sl'] ?? [];
         $gias    = $_POST['gia'] ?? [];
 
-               if ($khuVucNhapKho !== null && !in_array($cuahang_id, $khuVucNhapKho, true)) {
+        if ($userPhanquyen === 3 || $userPhanquyen === 5) {
+            if ($cuahang_id !== $userCuahangId) {
+                throw new Exception('Bạn chỉ được nhập hàng cho cửa hàng của mình!');
+            }
+        } elseif ($khuVucNhapKho !== null && !in_array($cuahang_id, $khuVucNhapKho, true)) {
             throw new Exception('Bạn chỉ được nhập hàng cho cửa hàng thuộc khu vực mình phụ trách!');
         }
 
@@ -112,32 +149,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         $pdo->beginTransaction();
 
-        $stmtPn = $pdo->prepare("INSERT INTO phieunhap (cuahang_id, nhacungcap_id, ngay_nhap, tong_tien, nguoi_nhap) VALUES (?, ?, ?, ?, ?)");
-        $stmtPn->execute([$cuahang_id, $nhacungcap_id, $ngay_nhap, $tong_tien, $nguoi_nhap]);
+        $stmtPn = $pdo->prepare("INSERT INTO phieunhap (cuahang_id, nhacungcap_id, ngay_nhap, tong_tien, nguoi_nhap) VALUES (?, ?, ?, 0, ?)");
+        $stmtPn->execute([$cuahang_id, $nhacungcap_id, $ngay_nhap, $nguoi_nhap]);
         $pnId = $pdo->lastInsertId();
 
         $stmtCt = $pdo->prepare("INSERT INTO chitietphieunhap (phieunhap_id, sanpham_id, so_luong, gia_nhap) VALUES (?, ?, ?, ?)");
         $stmtTk = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong + ? WHERE sanpham_id = ? AND cuahang_id = ?");
-        
+
+        $danhSachGop = [];
         for ($i = 0; $i < count($sp_ids); $i++) {
             $sp_id = (int)$sp_ids[$i];
             $sl    = (int)$sls[$i];
             $gia   = (float)$gias[$i];
-            
+
             if ($sp_id > 0 && $sl > 0) {
-                $stmtCt->execute([$pnId, $sp_id, $sl, $gia]);
-                
-                $stmtTk->execute([$sl, $sp_id, $cuahang_id]);
-                
-                if ($stmtTk->rowCount() === 0) {
-                    $stmtInsTk = $pdo->prepare("INSERT INTO tonkho (sanpham_id, cuahang_id, so_luong) VALUES (?, ?, ?)");
-                    $stmtInsTk->execute([$sp_id, $cuahang_id, $sl]);
+                if ($gia < 0) {
+                    throw new Exception("Đơn giá nhập không được là số âm (Sản phẩm ID: $sp_id)");
                 }
+
+                if (!isset($danhSachGop[$sp_id])) {
+                    $danhSachGop[$sp_id] = [
+                        'sl' => 0, 
+                        'gia' => $gia
+                    ];
+                }
+                $danhSachGop[$sp_id]['sl'] += $sl;
             }
         }
 
+        $tong_tien_thuc_te = 0;
+
+        foreach ($danhSachGop as $sp_id => $data) {
+            $sl = $data['sl'];
+            $gia = $data['gia'];
+
+            $tong_tien_thuc_te += ($sl * $gia);
+
+            $stmtCt->execute([$pnId, $sp_id, $sl, $gia]);
+            $stmtTk->execute([$sl, $sp_id, $cuahang_id]);
+
+            if ($stmtTk->rowCount() === 0) {
+                $stmtInsTk = $pdo->prepare("INSERT INTO tonkho (sanpham_id, cuahang_id, so_luong) VALUES (?, ?, ?)");
+                $stmtInsTk->execute([$sp_id, $cuahang_id, $sl]);
+            }
+        }
+
+        $pdo->prepare("UPDATE phieunhap SET tong_tien = ? WHERE id = ?")->execute([$tong_tien_thuc_te, $pnId]);
+
         $pdo->commit();
-        $alertMsg = "Tạo phiếu nhập thành công và đã tự động cộng số lượng vào kho!";
+        $alertMsg = "Tạo phiếu nhập thành công! Tổng tiền: " . number_format($tong_tien_thuc_te, 0, ',', '.') . " ₫";
     } catch (Exception $ex) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
@@ -151,7 +211,11 @@ $scriptName = $_SERVER['SCRIPT_NAME'];
 $projectBaseUrl = preg_replace('#/modules/.*$#', '', $scriptName);
 $imageDirPhysical = ROOT_PATH . '/assets/images/';
 
-if ($khuVucNhapKho !== null) {
+if ($userPhanquyen === 3 || $userPhanquyen === 5) {
+    $stmtDsCh = $pdo->prepare("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE id = ?");
+    $stmtDsCh->execute([$userCuahangId]);
+    $dsCuaHang = $stmtDsCh->fetchAll();
+} elseif ($khuVucNhapKho !== null) {
     $inKv = implode(',', array_fill(0, count($khuVucNhapKho), '?'));
     $stmtDsCh = $pdo->prepare("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 AND id IN ($inKv) ORDER BY id ASC");
     $stmtDsCh->execute($khuVucNhapKho);
@@ -159,6 +223,7 @@ if ($khuVucNhapKho !== null) {
 } else {
     $dsCuaHang = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
 }
+
 $dsNcc       = $pdo->query("SELECT id, ten_ncc FROM nhacungcap ORDER BY ten_ncc ASC")->fetchAll();
 $dsSanPham   = $pdo->query("SELECT id, ma_san_pham, ten_san_pham, gia_nhap, hinh_anh FROM sanpham WHERE trang_thai = 1 ORDER BY ten_san_pham ASC")->fetchAll();
 
@@ -186,7 +251,10 @@ $offset = ($page - 1) * $limit;
 
 $whereKv = '';
 $kvParams = [];
-if ($khuVucNhapKho !== null) {
+if ($userPhanquyen === 3 || $userPhanquyen === 5) {
+    $whereKv = "WHERE pn.cuahang_id = ?";
+    $kvParams = [$userCuahangId];
+} elseif ($khuVucNhapKho !== null) {
     $inKv = implode(',', array_fill(0, count($khuVucNhapKho), '?'));
     $whereKv = "WHERE pn.cuahang_id IN ($inKv)";
     $kvParams = $khuVucNhapKho;
@@ -275,19 +343,31 @@ require ROOT_PATH . '/includes/header.php';
 
     <form method="POST" action="" id="formNhapKho">
         <input type="hidden" name="action" value="save_pn">
-        <input type="hidden" name="tong_tien_hidden" id="tong_tien_hidden" value="0">
-        
+
         <div class="row g-3 mb-4">
-            <div class="col-md-3">
+            <div class="col-lg-4 col-xl-4">
                 <label class="form-label fw-semibold">Kho nhận </label>
-                <select class="form-select" name="cuahang_id" id="cuahangSelect" required onchange="loadNhanVienKho(this.value)">
-                    <option value="">-- Chọn cửa hàng --</option>
-                    <?php foreach ($dsCuaHang as $ch): ?>
-                        <option value="<?= $ch['id'] ?>"><?= htmlspecialchars($ch['ma_cua_hang'] . ' - ' . $ch['ten_cua_hang']) ?></option>
-                    <?php endforeach; ?>
-                </select>
+                <?php if ($userPhanquyen === 3 || $userPhanquyen === 5): ?>
+                    <select class="form-select" name="cuahang_id" id="cuahangSelect" required readonly style="pointer-events: none; background-color: #f8fafc;">
+                        <?php foreach ($dsCuaHang as $ch): ?>
+                            <option value="<?= $ch['id'] ?>" selected><?= htmlspecialchars($ch['ma_cua_hang'] . ' - ' . $ch['ten_cua_hang']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <script>
+                        document.addEventListener("DOMContentLoaded", function() {
+                            loadNhanVienKho(<?= $userCuahangId ?>);
+                        });
+                    </script>
+                <?php else: ?>
+                    <select class="form-select" name="cuahang_id" id="cuahangSelect" required onchange="loadNhanVienKho(this.value)">
+                        <option value="">-- Chọn cửa hàng --</option>
+                        <?php foreach ($dsCuaHang as $ch): ?>
+                            <option value="<?= $ch['id'] ?>"><?= htmlspecialchars($ch['ma_cua_hang'] . ' - ' . $ch['ten_cua_hang']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                <?php endif; ?>
             </div>
-            <div class="col-md-3">
+            <div class="col-lg-3 col-xl-3">
                 <label class="form-label fw-semibold">Nhà cung cấp </label>
                 <select class="form-select" name="nhacungcap_id" required>
                     <option value="">-- Chọn nhà cung cấp --</option>
@@ -296,15 +376,28 @@ require ROOT_PATH . '/includes/header.php';
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-lg-3 col-xl-3">
                 <label class="form-label fw-semibold">Nhân Viên nhập</label>
-                <select class="form-select" name="nguoi_nhap" id="nguoiNhapSelect" required>
-                    <option value="">-- Chọn cửa hàng trước --</option>
-                </select>
+                <?php if ($userPhanquyen === 5): ?>
+                    <?php 
+                        $stmtTenNv = $pdo->prepare("SELECT id, ho_ten FROM nhanvien WHERE nguoidung_id = ?");
+                        $stmtTenNv->execute([(int)($_SESSION['user_id'] ?? 0)]);
+                        $nvData = $stmtTenNv->fetch();
+                        $tenNvKho = $nvData ? $nvData['ho_ten'] : 'Nhân viên';
+                        $idNvKho = $nvData ? $nvData['id'] : 0;
+                    ?>
+                    <select class="form-select" name="nguoi_nhap" required readonly style="pointer-events: none; background-color: #f8fafc;">
+                        <option value="<?= $idNvKho ?>" selected><?= htmlspecialchars($tenNvKho) ?></option>
+                    </select>
+                <?php else: ?>
+                    <select class="form-select" name="nguoi_nhap" id="nguoiNhapSelect" required>
+                        <option value="">-- Chọn cửa hàng trước --</option>
+                    </select>
+                <?php endif; ?>
             </div>
-            <div class="col-md-3">
+            <div class="col-lg-2 col-xl-2">
                 <label class="form-label fw-semibold">Thời gian nhập</label>
-                <input type="datetime-local" class="form-control" name="ngay_nhap" value="<?= date('Y-m-d\TH:i') ?>" required>
+                <input type="datetime-local" class="form-control px-2" name="ngay_nhap" value="<?= date('Y-m-d\TH:i') ?>" required>
             </div>
         </div>
 
@@ -325,7 +418,7 @@ require ROOT_PATH . '/includes/header.php';
                             <select name="sp_id[]" class="form-select sp-select" required onchange="updateProductData(this)">
                                 <option value="" data-gia="0" data-img="">-- Chọn sản phẩm --</option>
                                 <?php foreach ($dsSanPham as $sp): ?>
-                                    <option value="<?= $sp['id'] ?>" data-gia="<?= $sp['gia_nhap'] ?>" data-img="<?= htmlspecialchars($sp['img_url']) ?>">
+                                    <option value="<?= $sp['id'] ?>" data-gia="<?= (float)$sp['gia_nhap'] ?>" data-img="<?= htmlspecialchars($sp['img_url']) ?>">
                                         <?= htmlspecialchars($sp['ma_san_pham'] . ' - ' . $sp['ten_san_pham']) ?>
                                     </option>
                                 <?php endforeach; ?>
@@ -376,7 +469,7 @@ require ROOT_PATH . '/includes/header.php';
             <div class="panel-subtitle ms-5">Danh sách các phiếu nhập gần đây trên toàn hệ thống</div>
         </div>
     </div>
-    
+
     <div class="table-responsive">
         <table class="table table-modern mb-0">
             <thead>
@@ -446,7 +539,7 @@ require ROOT_PATH . '/includes/header.php';
             </ul>
         </nav>
     </div>
-    
+
     <style>
         .ck-pagination { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0; }
         .ck-pagination .page-item .page-link { border-radius: 8px !important; border: 1px solid var(--border-light); color: var(--ink-700); font-weight: 600; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; padding: 0; transition: all 0.2s ease; background: var(--surface); box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
@@ -457,7 +550,6 @@ require ROOT_PATH . '/includes/header.php';
     </style>
     <?php endif; ?>
 </div>
-
 
 <div class="modal fade" id="modalViewImage" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -549,17 +641,17 @@ function formatProductSelection (opt) {
     if (!imgUrl || imgUrl === '') {
         return $('<span><div style="display:inline-block;width:48px;height:48px;background:#f8fafc;border-radius:8px;margin-right:12px;vertical-align:middle;border:1px dashed var(--border-subtle); text-align:center; line-height:48px;"><i class="fa-solid fa-image text-muted"></i></div><span class="fw-semibold text-dark">' + opt.text + '</span></span>');
     }
-    
+
     var $img = $('<img src="' + imgUrl + '" style="width:48px;height:48px;object-fit:cover;border-radius:8px;margin-right:12px;border:1px solid var(--border-light);vertical-align:middle;box-shadow: 0 2px 4px rgba(0,0,0,0.05); cursor: zoom-in; transition: transform 0.2s ease;" />');
-    
+
     $img.on('mouseenter', function() { $(this).css('transform', 'scale(1.15)'); });
     $img.on('mouseleave', function() { $(this).css('transform', 'scale(1)'); });
     $img.on('mousedown click', function(e) {
         e.preventDefault();
-        e.stopPropagation(); // Ngăn không cho Select2 mở danh sách khi bấm vào ảnh
+        e.stopPropagation();
         viewLargeImage(imgUrl, title);
     });
-    
+
     var $span = $('<span></span>').append($img).append('<span class="fw-semibold text-dark">' + opt.text + '</span>');
     return $span;
 }
@@ -581,11 +673,12 @@ $(document).ready(function() {
 function updateProductData(selectElement) {
     const row = selectElement.closest('tr');
     const selectedOption = selectElement.options[selectElement.selectedIndex];
-    
-    const price = selectedOption.getAttribute('data-gia') || 0;
+
+    const priceRaw = selectedOption.getAttribute('data-gia') || 0;
+    const price = parseFloat(priceRaw) || 0;
     const priceInput = row.querySelector('.sp-price');
     priceInput.value = price;
-    
+
     calcRow(priceInput);
 }
 
@@ -594,10 +687,10 @@ function calcRow(element) {
     const qty = parseFloat(row.querySelector('.sp-qty').value) || 0;
     const price = parseFloat(row.querySelector('.sp-price').value) || 0;
     const total = qty * price;
-    
+
     row.querySelector('.sp-total-text').innerText = formatMoney(total);
     row.setAttribute('data-total', total);
-    
+
     calcGrandTotal();
 }
 
@@ -607,25 +700,33 @@ function calcGrandTotal() {
     rows.forEach(row => {
         grandTotal += parseFloat(row.getAttribute('data-total') || 0);
     });
-    
+
     document.getElementById('grandTotalText').innerText = formatMoney(grandTotal);
-    document.getElementById('tong_tien_hidden').value = grandTotal;
 }
 
 function addRow() {
-    $('.sp-select').select2('destroy');
-    
+    $('.sp-select').each(function() {
+        if ($(this).hasClass("select2-hidden-accessible")) {
+            $(this).select2('destroy');
+        }
+    });
+
     const tbody = document.getElementById('dsSanPhamInputs');
     const firstRow = tbody.querySelector('tr');
     if (!firstRow) return;
-    
+
     const newRow = firstRow.cloneNode(true);
+
+    $(newRow).find('.select2-container').remove();
+    $(newRow).find('select').removeClass('select2-hidden-accessible').removeAttr('data-select2-id tabindex aria-hidden');
+    $(newRow).find('option').removeAttr('data-select2-id');
+
     newRow.querySelector('.sp-select').value = '';
     newRow.querySelector('.sp-qty').value = 1;
     newRow.querySelector('.sp-price').value = '';
     newRow.querySelector('.sp-total-text').innerText = '0 ₫';
     newRow.setAttribute('data-total', 0);
-    
+
     tbody.appendChild(newRow);
     initSelect2();
 }
@@ -649,7 +750,7 @@ function viewPnDetail(id, code, date, store, supplier, total) {
     document.getElementById('dtPnSupplier').innerText = supplier;
     document.getElementById('dtPnTotal').innerText = formatMoney(total);
     document.getElementById('dtPnTbody').innerHTML = '<tr><td colspan="5" class="text-center py-4"><i class="fa-solid fa-spinner fa-spin text-muted me-2"></i> Đang tải dữ liệu...</td></tr>';
-    
+
     const modal = new bootstrap.Modal(document.getElementById('modalPnDetail'));
     modal.show();
 
@@ -662,8 +763,8 @@ function viewPnDetail(id, code, date, store, supplier, total) {
             } else {
                 data.forEach(item => {
                     let subTotal = parseFloat(item.so_luong) * parseFloat(item.gia_nhap);
-                    let imgHtml = item.img_url ? `<img src="${item.img_url}" style="width:48px;height:48px;object-fit:cover;border-radius:10px;border:1px solid var(--border-light);margin-right:12px;flex-shrink:0;box-shadow:0 2px 4px rgba(0,0,0,0.05);transition:transform 0.2s ease;cursor:zoom-in;" onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'" onclick="viewLargeImage('${item.img_url}', '${item.ten_san_pham.replace(/'/g, "\\'")}')">` : `<div class="d-flex align-items-center justify-content-center" style="width:48px;height:48px;border-radius:10px;background:#f8fafc;margin-right:12px;flex-shrink:0;border:1px dashed var(--border-subtle);"><i class="fa-solid fa-image text-muted"></i></div>`;
-                    
+                    let imgHtml = item.img_url ? `<img src="${item.img_url}" style="width:48px;height:48px;object-fit:cover;border-radius:10px;border:1px solid var(--border-light);margin-right:12px;flex-shrink:0;box-shadow:0 2px 4px rgba(0,0,0,0.05);transition:transform 0.2s ease;cursor:zoom-in;" onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'" onclick="viewLargeImage('${item.img_url}', '${item.ten_san_pham.replace(/'/g, "\'")}')">` : `<div class="d-flex align-items-center justify-content-center" style="width:48px;height:48px;border-radius:10px;background:#f8fafc;margin-right:12px;flex-shrink:0;border:1px dashed var(--border-subtle);"><i class="fa-solid fa-image text-muted"></i></div>`;
+
                     html += `<tr>
                                 <td class="align-middle"><span class="order-code">${item.ma_san_pham}</span></td>
                                 <td class="align-middle">
@@ -688,24 +789,27 @@ function viewPnDetail(id, code, date, store, supplier, total) {
 
 function loadNhanVienKho(cuahangId) {
     const nvSelect = document.getElementById('nguoiNhapSelect');
+    if (!nvSelect) return;
     if (!cuahangId) {
         nvSelect.innerHTML = '<option value="">-- Chọn cửa hàng trước --</option>';
         return;
     }
-    
+
     nvSelect.innerHTML = '<option value="">-- Đang tải... --</option>';
-    
+
     fetch('index.php?ajax=get_nv_kho&cuahang_id=' + cuahangId)
         .then(response => response.json())
         .then(data => {
-            if (data.length === 0) {
-                nvSelect.innerHTML = '<option value="">-- Cửa hàng không có nhân viên kho --</option>';
-            } else {
-                let html = '<option value="">-- Chọn nhân viên kho --</option>';
-                data.forEach(nv => {
-                    html += `<option value="${nv.id}">${nv.ho_ten} (${nv.chuc_vu})</option>`;
-                });
-                nvSelect.innerHTML = html;
+            if (nvSelect) {
+                if (data.length === 0) {
+                    nvSelect.innerHTML = '<option value="">-- Cửa hàng không có nhân viên kho --</option>';
+                } else {
+                    let html = '<option value="">-- Chọn nhân viên kho --</option>';
+                    data.forEach(nv => {
+                        html += `<option value="${nv.id}">${nv.ho_ten} (${nv.chuc_vu})</option>`;
+                    });
+                    nvSelect.innerHTML = html;
+                }
             }
         })
         .catch(error => {
@@ -714,11 +818,10 @@ function loadNhanVienKho(cuahangId) {
         });
 }
 
-
 function viewLargeImage(url, title) {
     document.getElementById('largeImagePreview').src = url;
     document.getElementById('largeImageTitle').innerText = title;
-    
+
     const modal = new bootstrap.Modal(document.getElementById('modalViewImage'));
     modal.show();
 }

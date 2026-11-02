@@ -38,13 +38,37 @@ function getProductImageUrlLocal($hinh_anh, $ma_sp, $imageDirPhysical, $projectB
     return '';
 }
 
+$userCuahangId = (int)($_SESSION['cuahang_id'] ?? 0);
+$userPhanquyen = (int)($_SESSION['phanquyen_id'] ?? 0);
+
+if ($userCuahangId === 0 || $userPhanquyen === 0) {
+    $stmtUser = $pdo->prepare("
+        SELECT nd.phanquyen_id, nv.cuahang_id 
+        FROM nguoidung nd 
+        LEFT JOIN nhanvien nv ON nd.id = nv.nguoidung_id 
+        WHERE nd.id = ?
+    ");
+    $stmtUser->execute([(int)($_SESSION['user_id'] ?? 0)]);
+    $uData = $stmtUser->fetch();
+    if ($uData) {
+        if ($userPhanquyen === 0) $userPhanquyen = (int)$uData['phanquyen_id'];
+        if ($userCuahangId === 0) $userCuahangId = (int)$uData['cuahang_id'];
+    }
+}
+
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_data_xuat') {
     $ch_id = (int)$_GET['cuahang_id'];
-    
+
+    if (($userPhanquyen === 3 || $userPhanquyen === 5) && $ch_id !== $userCuahangId) {
+        header('Content-Type: application/json');
+        echo json_encode(['nhanvien' => [], 'sanpham' => []]);
+        exit;
+    }
+
     $stmtNv = $pdo->prepare("SELECT id, ho_ten, chuc_vu FROM nhanvien WHERE cuahang_id = ? AND LOWER(chuc_vu) LIKE '%kho%' ORDER BY ho_ten ASC");
     $stmtNv->execute([$ch_id]);
     $nhanvien = $stmtNv->fetchAll();
-    
+
     $stmtSp = $pdo->prepare("
         SELECT sp.id, sp.ma_san_pham, sp.ten_san_pham, sp.hinh_anh, tk.so_luong 
         FROM tonkho tk 
@@ -54,11 +78,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_data_xuat') {
     ");
     $stmtSp->execute([$ch_id]);
     $sanpham = $stmtSp->fetchAll();
-    
+
     foreach ($sanpham as &$sp) {
         $sp['img_url'] = getProductImageUrlLocal($sp['hinh_anh'], $sp['ma_san_pham'], $imageDirPhysical, $projectBaseUrl);
     }
-    
+
     header('Content-Type: application/json');
     echo json_encode(['nhanvien' => $nhanvien, 'sanpham' => $sanpham]);
     exit;
@@ -74,11 +98,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_ctdc') {
     ");
     $stmt->execute([$dc_id]);
     $details = $stmt->fetchAll();
-    
+
     foreach ($details as &$d) {
+        $d['ten_san_pham'] = htmlspecialchars($d['ten_san_pham']);
+        $d['ma_san_pham']  = htmlspecialchars($d['ma_san_pham']);
+
         $d['img_url'] = getProductImageUrlLocal($d['hinh_anh'], $d['ma_san_pham'], $imageDirPhysical, $projectBaseUrl);
     }
-    
+
     header('Content-Type: application/json');
     echo json_encode($details);
     exit;
@@ -89,19 +116,30 @@ $alertType = 'success';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_dc') {
     try {
-        $tu_cuahang_id  = (int)($_POST['tu_cuahang_id'] ?? 0);
+        if ($userPhanquyen === 3 || $userPhanquyen === 5) {
+            $tu_cuahang_id = $userCuahangId;
+        } else {
+            $tu_cuahang_id = (int)($_POST['tu_cuahang_id'] ?? 0);
+        }
+
         $den_cuahang_id = (int)($_POST['den_cuahang_id'] ?? 0);
         $nguoi_chuyen   = (int)($_POST['nguoi_chuyen'] ?? 0);
         $ngay_chuyen    = trim($_POST['ngay_chuyen'] ?? date('Y-m-d H:i:s'));
         $ghi_chu        = trim($_POST['ghi_chu'] ?? '');
-        
+
         $sp_ids = $_POST['sp_id'] ?? [];
         $sls    = $_POST['sl'] ?? [];
+
+        if ($userPhanquyen === 3 || $userPhanquyen === 5) {
+            if ($tu_cuahang_id !== $userCuahangId) {
+                throw new Exception('Bạn chỉ được điều chuyển hàng từ cửa hàng của mình!');
+            }
+        }
 
         if ($tu_cuahang_id <= 0 || $den_cuahang_id <= 0 || $nguoi_chuyen <= 0 || empty($sp_ids)) {
             throw new Exception('Vui lòng điền đầy đủ thông Kho xuất, Kho nhận, Người xuất và Sản phẩm!');
         }
-        
+
         if ($tu_cuahang_id === $den_cuahang_id) {
             throw new Exception('Kho nhận phải khác Kho xuất!');
         }
@@ -113,33 +151,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $dcId = $pdo->lastInsertId();
 
         $stmtCt = $pdo->prepare("INSERT INTO chitietdieuchuyen (phieudieuchuyen_id, sanpham_id, so_luong) VALUES (?, ?, ?)");
-        
+
         $stmtCheckTon = $pdo->prepare("SELECT so_luong FROM tonkho WHERE sanpham_id = ? AND cuahang_id = ? FOR UPDATE");
         $stmtTruTon   = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong - ? WHERE sanpham_id = ? AND cuahang_id = ?");
         $stmtCongTon  = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong + ? WHERE sanpham_id = ? AND cuahang_id = ?");
         $stmtThemTon  = $pdo->prepare("INSERT INTO tonkho (sanpham_id, cuahang_id, so_luong) VALUES (?, ?, ?)");
-        
+
+        $danhSachGop = [];
         for ($i = 0; $i < count($sp_ids); $i++) {
             $sp_id = (int)$sp_ids[$i];
             $sl    = (int)$sls[$i];
-            
             if ($sp_id > 0 && $sl > 0) {
-                $stmtCheckTon->execute([$sp_id, $tu_cuahang_id]);
-                $tonXuat = $stmtCheckTon->fetchColumn();
-                
-                if ($tonXuat === false || $tonXuat < $sl) {
-                    throw new Exception("Sản phẩm ID {$sp_id} không đủ tồn kho để chuyển (Tồn hiện tại: " . (int)$tonXuat . ")!");
+                if (!isset($danhSachGop[$sp_id])) {
+                    $danhSachGop[$sp_id] = 0;
                 }
-                
-                $stmtCt->execute([$dcId, $sp_id, $sl]);
-                $stmtTruTon->execute([$sl, $sp_id, $tu_cuahang_id]);
-                
-                $stmtCheckTon->execute([$sp_id, $den_cuahang_id]);
-                if ($stmtCheckTon->fetch() !== false) {
-                    $stmtCongTon->execute([$sl, $sp_id, $den_cuahang_id]);
-                } else {
-                    $stmtThemTon->execute([$sp_id, $den_cuahang_id, $sl]);
-                }
+                $danhSachGop[$sp_id] += $sl;
+            }
+        }
+
+        foreach ($danhSachGop as $sp_id => $tong_sl) {
+            $stmtCheckTon->execute([$sp_id, $tu_cuahang_id]);
+            $tonXuat = $stmtCheckTon->fetchColumn();
+
+            if ($tonXuat === false || $tonXuat < $tong_sl) {
+                throw new Exception("Sản phẩm ID {$sp_id} không đủ tồn kho để chuyển (Tồn hiện tại: " . (int)$tonXuat . ", Yêu cầu: $tong_sl)!");
+            }
+
+            $stmtCt->execute([$dcId, $sp_id, $tong_sl]);
+            $stmtTruTon->execute([$tong_sl, $sp_id, $tu_cuahang_id]);
+
+            $stmtCheckTon->execute([$sp_id, $den_cuahang_id]);
+            if ($stmtCheckTon->fetch() !== false) {
+                $stmtCongTon->execute([$tong_sl, $sp_id, $den_cuahang_id]);
+            } else {
+                $stmtThemTon->execute([$sp_id, $den_cuahang_id, $tong_sl]);
             }
         }
 
@@ -154,14 +199,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-$dsCuaHang = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+if ($userCuahangId > 0 && ($userPhanquyen === 3 || $userPhanquyen === 5)) {
+    $stmtDsCh = $pdo->prepare("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE id = ?");
+    $stmtDsCh->execute([$userCuahangId]);
+    $dsCuaHangXuat = $stmtDsCh->fetchAll();
+} else {
+    $dsCuaHangXuat = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+}
+
+$dsCuaHangAll = $pdo->query("SELECT id, ma_cua_hang, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
 
 $page   = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 if ($page < 1) $page = 1;
 $limit  = 10;
 $offset = ($page - 1) * $limit;
 
-$totalRows = $pdo->query("SELECT COUNT(*) FROM phieudieuchuyen")->fetchColumn();
+$whereKv = '';
+$kvParams = [];
+if ($userCuahangId > 0 && ($userPhanquyen === 3 || $userPhanquyen === 5)) {
+    $whereKv = "WHERE dc.tu_cuahang_id = ? OR dc.den_cuahang_id = ?";
+    $kvParams = [$userCuahangId, $userCuahangId];
+}
+
+$stmtTotal = $pdo->prepare("SELECT COUNT(*) FROM phieudieuchuyen dc $whereKv");
+$stmtTotal->execute($kvParams);
+$totalRows = $stmtTotal->fetchColumn();
 $totalPages = ceil($totalRows / $limit);
 
 $sqlHistory = "
@@ -175,10 +237,13 @@ $sqlHistory = "
     JOIN cuahang cx ON dc.tu_cuahang_id = cx.id
     JOIN cuahang cn ON dc.den_cuahang_id = cn.id
     LEFT JOIN nhanvien nv ON dc.nguoi_chuyen = nv.id
+    $whereKv
     ORDER BY dc.id DESC
     LIMIT $limit OFFSET $offset
 ";
-$dsLichSu = $pdo->query($sqlHistory)->fetchAll();
+$stmtHistory = $pdo->prepare($sqlHistory);
+$stmtHistory->execute($kvParams);
+$dsLichSu = $stmtHistory->fetchAll();
 
 function buildPageUrl($pageNum) {
     $gets = $_GET;
@@ -244,37 +309,63 @@ require ROOT_PATH . '/includes/header.php';
 
     <form method="POST" action="" id="formDieuChuyen">
         <input type="hidden" name="action" value="save_dc">
-        
+
         <div class="row g-3 mb-4">
-            <div class="col-md-3">
+            <div class="col-lg-4 col-xl-4">
                 <label class="form-label fw-semibold">Kho xuất </label>
-                <select class="form-select" name="tu_cuahang_id" id="khoXuatSelect" required onchange="loadKhoXuatData(this.value)">
-                    <option value="">-- Chọn kho xuất --</option>
-                    <?php foreach ($dsCuaHang as $ch): ?>
-                        <option value="<?= $ch['id'] ?>"><?= htmlspecialchars($ch['ma_cua_hang'] . ' - ' . $ch['ten_cua_hang']) ?></option>
-                    <?php endforeach; ?>
-                </select>
+                <?php if ($userPhanquyen === 3 || $userPhanquyen === 5): ?>
+                    <select class="form-select" name="tu_cuahang_id" id="khoXuatSelect" required readonly style="pointer-events: none; background-color: #f8fafc;">
+                        <?php foreach ($dsCuaHangXuat as $ch): ?>
+                            <option value="<?= $ch['id'] ?>" selected><?= htmlspecialchars($ch['ma_cua_hang'] . ' - ' . $ch['ten_cua_hang']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <script>
+                        document.addEventListener("DOMContentLoaded", function() {
+                            loadKhoXuatData(<?= $userCuahangId ?>);
+                        });
+                    </script>
+                <?php else: ?>
+                    <select class="form-select" name="tu_cuahang_id" id="khoXuatSelect" required onchange="loadKhoXuatData(this.value)">
+                        <option value="">-- Chọn kho xuất --</option>
+                        <?php foreach ($dsCuaHangXuat as $ch): ?>
+                            <option value="<?= $ch['id'] ?>"><?= htmlspecialchars($ch['ma_cua_hang'] . ' - ' . $ch['ten_cua_hang']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                <?php endif; ?>
             </div>
-            <div class="col-md-3">
+            <div class="col-lg-4 col-xl-4">
                 <label class="form-label fw-semibold">Kho nhận </label>
                 <select class="form-select" name="den_cuahang_id" id="khoNhanSelect" required>
                     <option value="">-- Chọn kho nhận --</option>
-                    <?php foreach ($dsCuaHang as $ch): ?>
+                    <?php foreach ($dsCuaHangAll as $ch): ?>
                         <option value="<?= $ch['id'] ?>"><?= htmlspecialchars($ch['ma_cua_hang'] . ' - ' . $ch['ten_cua_hang']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-lg-4 col-xl-4">
                 <label class="form-label fw-semibold">Người thực hiện</label>
-                <select class="form-select" name="nguoi_chuyen" id="nguoiChuyenSelect" required>
-                    <option value="">-- Chọn kho xuất trước --</option>
-                </select>
+                <?php if ($userPhanquyen === 5 || $userPhanquyen === 3): ?>
+                    <?php 
+                        $stmtTenNv = $pdo->prepare("SELECT id, ho_ten FROM nhanvien WHERE nguoidung_id = ?");
+                        $stmtTenNv->execute([(int)($_SESSION['user_id'] ?? 0)]);
+                        $nvData = $stmtTenNv->fetch();
+                        $tenNvThucHien = $nvData ? $nvData['ho_ten'] : 'Nhân viên';
+                        $idNvThucHien = $nvData ? $nvData['id'] : 0;
+                    ?>
+                    <select class="form-select" name="nguoi_chuyen" required readonly style="pointer-events: none; background-color: #f8fafc;">
+                        <option value="<?= $idNvThucHien ?>" selected><?= htmlspecialchars($tenNvThucHien) ?></option>
+                    </select>
+                <?php else: ?>
+                    <select class="form-select" name="nguoi_chuyen" id="nguoiChuyenSelect" required>
+                        <option value="">-- Chọn kho xuất trước --</option>
+                    </select>
+                <?php endif; ?>
             </div>
-            <div class="col-md-3">
+            <div class="col-lg-4 col-xl-4">
                 <label class="form-label fw-semibold">Thời gian chuyển</label>
                 <input type="datetime-local" class="form-control" name="ngay_chuyen" value="<?= date('Y-m-d\TH:i') ?>" required>
             </div>
-            <div class="col-md-12">
+            <div class="col-lg-8 col-xl-8">
                 <label class="form-label fw-semibold">Ghi chú điều chuyển</label>
                 <textarea class="form-control" name="ghi_chu" rows="2" placeholder="Lý do điều chuyển..."></textarea>
             </div>
@@ -321,7 +412,7 @@ require ROOT_PATH . '/includes/header.php';
             <div class="panel-subtitle ms-5">Theo dõi lịch sử và trạng thái chuyển hàng</div>
         </div>
     </div>
-    
+
     <div class="table-responsive">
         <table class="table table-modern mb-0">
             <thead>
@@ -400,7 +491,7 @@ require ROOT_PATH . '/includes/header.php';
             </ul>
         </nav>
     </div>
-    
+
     <style>
         .ck-pagination { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0; }
         .ck-pagination .page-item .page-link { border-radius: 8px !important; border: 1px solid var(--border-light); color: var(--ink-700); font-weight: 600; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; padding: 0; transition: all 0.2s ease; background: var(--surface); box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
@@ -478,6 +569,7 @@ require ROOT_PATH . '/includes/header.php';
 
 <script>
 let availableProducts = [];
+let dsKhoNhanGoc = [];
 
 function formatProductOption(opt) {
     if (!opt.id || opt.id === "") { return opt.text; }
@@ -497,17 +589,17 @@ function formatProductSelection (opt) {
     if (!imgUrl || imgUrl === '') {
         return $('<span><div style="display:inline-block;width:48px;height:48px;background:#f8fafc;border-radius:8px;margin-right:12px;vertical-align:middle;border:1px dashed var(--border-subtle); text-align:center; line-height:48px;"><i class="fa-solid fa-image text-muted"></i></div><span class="fw-semibold text-dark">' + opt.text + '</span> <small class="text-muted ms-1">(Tồn: ' + maxTon + ')</small></span>');
     }
-    
+
     var $img = $('<img src="' + imgUrl + '" style="width:48px;height:48px;object-fit:cover;border-radius:8px;margin-right:12px;border:1px solid var(--border-light);vertical-align:middle;box-shadow: 0 2px 4px rgba(0,0,0,0.05); cursor: zoom-in; transition: transform 0.2s ease;" />');
-    
+
     $img.on('mouseenter', function() { $(this).css('transform', 'scale(1.15)'); });
     $img.on('mouseleave', function() { $(this).css('transform', 'scale(1)'); });
     $img.on('mousedown click', function(e) {
         e.preventDefault();
-        e.stopPropagation(); // Ngăn không cho Select2 mở danh sách khi bấm vào ảnh
+        e.stopPropagation();
         viewLargeImage(imgUrl, title);
     });
-    
+
     var $span = $('<span></span>').append($img).append('<span class="fw-semibold text-dark">' + opt.text + '</span> <small class="text-muted ms-1">(Tồn: ' + maxTon + ')</small>');
     return $span;
 }
@@ -522,41 +614,62 @@ function initSelect2() {
     });
 }
 
+function filterKhoNhan(khoXuatId) {
+    const khoNhanSelect = document.getElementById('khoNhanSelect');
+
+    if (dsKhoNhanGoc.length === 0) {
+        dsKhoNhanGoc = Array.from(khoNhanSelect.options)
+            .filter(opt => opt.value !== '')
+            .map(opt => ({ value: String(opt.value), text: opt.text }));
+    }
+
+    const current = String(khoNhanSelect.value);
+    const xuatId = String(khoXuatId || '');
+
+    let html = '<option value="">-- Chọn kho nhận --</option>';
+    dsKhoNhanGoc.forEach(kho => {
+        if (kho.value === xuatId) return;
+        html += `<option value="${kho.value}">${kho.text}</option>`;
+    });
+    khoNhanSelect.innerHTML = html;
+
+    if (current && current !== xuatId) {
+        khoNhanSelect.value = current;
+    }
+}
+
 function loadKhoXuatData(cuahangId) {
     const nvSelect = document.getElementById('nguoiChuyenSelect');
     const tbody = document.getElementById('dsSanPhamInputs');
-    const khoNhanSelect = document.getElementById('khoNhanSelect');
-    
+
     tbody.innerHTML = '';
     availableProducts = [];
     calcGrandTotal();
-    
-    Array.from(khoNhanSelect.options).forEach(opt => {
-        if(opt.value !== "") {
-            opt.disabled = (opt.value === cuahangId);
-        }
-    });
+
+    filterKhoNhan(cuahangId);
 
     if (!cuahangId) {
-        nvSelect.innerHTML = '<option value="">-- Chọn kho xuất trước --</option>';
+        if (nvSelect) nvSelect.innerHTML = '<option value="">-- Chọn kho xuất trước --</option>';
         return;
     }
-    
-    nvSelect.innerHTML = '<option value="">-- Đang tải... --</option>';
-    
+
+    if (nvSelect) nvSelect.innerHTML = '<option value="">-- Đang tải... --</option>';
+
     fetch('index.php?ajax=get_data_xuat&cuahang_id=' + cuahangId)
         .then(response => response.json())
         .then(data => {
-            if (data.nhanvien.length === 0) {
-                nvSelect.innerHTML = '<option value="">-- Kho không có nhân viên --</option>';
-            } else {
-                let html = '<option value="">-- Chọn nhân viên thực hiện --</option>';
-                data.nhanvien.forEach(nv => {
-                    html += `<option value="${nv.id}">${nv.ho_ten} (${nv.chuc_vu})</option>`;
-                });
-                nvSelect.innerHTML = html;
+            if (nvSelect) {
+                if (data.nhanvien.length === 0) {
+                    nvSelect.innerHTML = '<option value="">-- Kho không có nhân viên --</option>';
+                } else {
+                    let html = '<option value="">-- Chọn nhân viên thực hiện --</option>';
+                    data.nhanvien.forEach(nv => {
+                        html += `<option value="${nv.id}">${nv.ho_ten} (${nv.chuc_vu})</option>`;
+                    });
+                    nvSelect.innerHTML = html;
+                }
             }
-            
+
             availableProducts = data.sanpham;
             if (availableProducts.length > 0) {
                 addRow();
@@ -565,7 +678,7 @@ function loadKhoXuatData(cuahangId) {
             }
         })
         .catch(error => {
-            nvSelect.innerHTML = '<option value="">-- Lỗi dữ liệu --</option>';
+            if (nvSelect) nvSelect.innerHTML = '<option value="">-- Lỗi dữ liệu --</option>';
             console.error(error);
         });
 }
@@ -573,24 +686,23 @@ function loadKhoXuatData(cuahangId) {
 function updateProductData(selectElement) {
     const row = selectElement.closest('tr');
     const selectedOption = selectElement.options[selectElement.selectedIndex];
-    
+
     const maxTon = selectedOption.getAttribute('data-max') || 0;
     row.querySelector('.sp-ton-text').innerText = new Intl.NumberFormat('vi-VN').format(maxTon);
-    
+
     const qtyInput = row.querySelector('.sp-qty');
     qtyInput.max = maxTon;
     qtyInput.value = 1;
-    
+
     calcGrandTotal();
 }
 
 function checkQty(element) {
     const max = parseInt(element.max) || 0;
     const val = parseInt(element.value) || 0;
-    if (val > max) {
-        element.value = max;
-        alert('Số lượng chuyển không được vượt quá tồn kho hiện tại (' + max + ')!');
-    }
+
+    if (val < 0) element.value = 0; 
+
     calcGrandTotal();
 }
 
@@ -609,11 +721,15 @@ function addRow() {
         return;
     }
 
-    $('.sp-select').select2('destroy');
-    
+    $('.sp-select').each(function() {
+        if ($(this).hasClass("select2-hidden-accessible")) {
+            $(this).select2('destroy');
+        }
+    });
+
     const tbody = document.getElementById('dsSanPhamInputs');
     const tr = document.createElement('tr');
-    
+
     let optionsHtml = '<option value="" data-max="0" data-img="">-- Chọn sản phẩm --</option>';
     availableProducts.forEach(sp => {
         optionsHtml += `<option value="${sp.id}" data-max="${sp.so_luong}" data-img="${sp.img_url}">${sp.ma_san_pham} - ${sp.ten_san_pham}</option>`;
@@ -629,7 +745,7 @@ function addRow() {
             <span class="num-font fw-bold text-muted sp-ton-text">0</span>
         </td>
         <td>
-            <input type="number" name="sl[]" class="form-control text-end sp-qty" min="1" max="0" value="1" required oninput="checkQty(this)">
+            <input type="number" name="sl[]" class="form-control text-end sp-qty" min="1" value="1" required oninput="checkQty(this)">
         </td>
         <td class="text-center align-middle">
             <button type="button" class="action-icon-btn sm text-danger mx-auto" onclick="removeRow(this)" title="Xóa dòng">
@@ -637,7 +753,7 @@ function addRow() {
             </button>
         </td>
     `;
-    
+
     tbody.appendChild(tr);
     initSelect2();
 }
@@ -654,11 +770,10 @@ function removeRow(btn) {
     calcGrandTotal();
 }
 
-
 function viewLargeImage(url, title) {
     document.getElementById('largeImagePreview').src = url;
     document.getElementById('largeImageTitle').innerText = title;
-    
+
     const modal = new bootstrap.Modal(document.getElementById('modalViewImage'));
     modal.show();
 }
@@ -674,7 +789,7 @@ function viewDcDetail(id, code, date, xuat, nhan, total) {
     document.getElementById('dtDcNhan').innerText = nhan;
     document.getElementById('dtDcTotal').innerText = new Intl.NumberFormat('vi-VN').format(total);
     document.getElementById('dtDcTbody').innerHTML = '<tr><td colspan="3" class="text-center py-4"><i class="fa-solid fa-spinner fa-spin text-muted me-2"></i> Đang tải dữ liệu...</td></tr>';
-    
+
     const modal = new bootstrap.Modal(document.getElementById('modalDcDetail'));
     modal.show();
 
@@ -686,8 +801,8 @@ function viewDcDetail(id, code, date, xuat, nhan, total) {
                 html = '<tr><td colspan="3" class="text-center text-muted py-4">Phiếu này không có sản phẩm nào.</td></tr>';
             } else {
                 data.forEach(item => {
-                    let imgHtml = item.img_url ? `<img src="${item.img_url}" style="width:48px;height:48px;object-fit:cover;border-radius:10px;border:1px solid var(--border-light);margin-right:12px;flex-shrink:0;box-shadow:0 2px 4px rgba(0,0,0,0.05);transition:transform 0.2s ease;cursor:zoom-in;" onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'" onclick="viewLargeImage('${item.img_url}', '${item.ten_san_pham.replace(/'/g, "\\'")}')">` : `<div class="d-flex align-items-center justify-content-center" style="width:48px;height:48px;border-radius:10px;background:#f8fafc;margin-right:12px;flex-shrink:0;border:1px dashed var(--border-subtle);"><i class="fa-solid fa-image text-muted"></i></div>`;
-                    
+                    let imgHtml = item.img_url ? `<img src="${item.img_url}" style="width:48px;height:48px;object-fit:cover;border-radius:10px;border:1px solid var(--border-light);margin-right:12px;flex-shrink:0;box-shadow:0 2px 4px rgba(0,0,0,0.05);transition:transform 0.2s ease;cursor:zoom-in;" onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'" onclick="viewLargeImage('${item.img_url}', '${item.ten_san_pham.replace(/'/g, "'")}')">` : `<div class="d-flex align-items-center justify-content-center" style="width:48px;height:48px;border-radius:10px;background:#f8fafc;margin-right:12px;flex-shrink:0;border:1px dashed var(--border-subtle);"><i class="fa-solid fa-image text-muted"></i></div>`;
+
                     html += `<tr>
                                 <td class="align-middle"><span class="order-code">${item.ma_san_pham}</span></td>
                                 <td class="align-middle">
@@ -706,7 +821,6 @@ function viewDcDetail(id, code, date, xuat, nhan, total) {
             document.getElementById('dtDcTbody').innerHTML = '<tr><td colspan="3" class="text-center text-danger py-4">Lỗi tải dữ liệu. Vui lòng thử lại.</td></tr>';
         });
 }
-
 </script>
 
 <?php require ROOT_PATH . '/includes/footer.php'; ?>
