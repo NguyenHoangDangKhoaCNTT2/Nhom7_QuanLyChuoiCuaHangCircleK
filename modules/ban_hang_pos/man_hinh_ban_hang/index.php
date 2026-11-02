@@ -81,6 +81,10 @@ $cuahang_list = array_values(array_filter($posAllStores, static function ($store
     return isset($posAllowedStoreLookup[(int)$store['id']]);
 }));
 $posRegionalAssignments = array_intersect_key($posRegionalAssignments, $posAllowedStoreLookup);
+if (empty($_SESSION['ck_pos_member_csrf'])) {
+    $_SESSION['ck_pos_member_csrf'] = bin2hex(random_bytes(32));
+}
+$posMemberCsrf = $_SESSION['ck_pos_member_csrf'];
 
 try {
     $tenKhachColumn = $pdo->query("SHOW COLUMNS FROM hoadon LIKE 'ten_khach_nhap'")->fetch();
@@ -91,6 +95,94 @@ try {
     die('Không thể cập nhật cột tên khách hàng: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8'));
 }
 
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pos_action'] ?? '') === 'register_member') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    try {
+        $csrf = (string)($_POST['csrf_token'] ?? '');
+        if (!hash_equals($posMemberCsrf, $csrf)) {
+            http_response_code(403);
+            throw new RuntimeException('Phiên làm việc không hợp lệ. Vui lòng tải lại trang.');
+        }
+        $fullName = trim(preg_replace('/\s+/u', ' ', (string)($_POST['ho_ten'] ?? '')));
+        $phone = preg_replace('/[\s.\-]/', '', trim((string)($_POST['so_dien_thoai'] ?? '')));
+        $storeId = (int)($_POST['cuahang_id'] ?? 0);
+        if (!isset($posAllowedStoreLookup[$storeId])) {
+            http_response_code(403);
+            throw new RuntimeException('Bạn không được đăng ký thành viên tại chi nhánh này.');
+        }
+        if (mb_strlen($fullName, 'UTF-8') < 2 || mb_strlen($fullName, 'UTF-8') > 100) {
+            throw new RuntimeException('Họ tên phải có từ 2 đến 100 ký tự.');
+        }
+        if (!preg_match('/^0[0-9]{9,10}$/', $phone)) {
+            throw new RuntimeException('Số điện thoại phải có 10 hoặc 11 chữ số và bắt đầu bằng 0.');
+        }
+        $memberSelect = $pdo->prepare("SELECT kh.id, kh.ho_ten, kh.so_dien_thoai, kh.diem_tich_luy, COALESCE(tt.hang_the, 'Bạc') AS hang_the, COALESCE(tt.ti_le_giam_gia, 0) AS ti_le_giam_gia FROM khachhang kh LEFT JOIN thetichdiem tt ON tt.id = kh.thetichdiem_id WHERE kh.so_dien_thoai = ? LIMIT 1");
+        $memberSelect->execute([$phone]);
+        $member = $memberSelect->fetch();
+        $alreadyExists = (bool)$member;
+        if (!$member) {
+            $firstTier = $pdo->query("SELECT id FROM thetichdiem ORDER BY diem_toi_thieu ASC, id ASC LIMIT 1")->fetchColumn();
+            if (!$firstTier) throw new RuntimeException('Chưa cấu hình hạng thành viên trong hệ thống.');
+            try {
+                $insert = $pdo->prepare("INSERT INTO khachhang (ho_ten, so_dien_thoai, thetichdiem_id, diem_tich_luy, cuahang_id, ngay_dang_ky) VALUES (?, ?, ?, 0, ?, NOW())");
+                $insert->execute([$fullName, $phone, (int)$firstTier, $storeId]);
+            } catch (PDOException $e) {
+                if ($e->getCode() !== '23000') throw $e;
+                $alreadyExists = true;
+            }
+            $memberSelect->execute([$phone]);
+            $member = $memberSelect->fetch();
+        }
+        if (!$member) throw new RuntimeException('Không thể lấy thông tin thành viên vừa đăng ký.');
+        echo json_encode([
+            'success' => true,
+            'existing' => $alreadyExists,
+            'member' => [
+                'id' => (int)$member['id'],
+                'name' => $member['ho_ten'],
+                'phone' => $member['so_dien_thoai'],
+                'tier' => $member['hang_the'],
+                'points' => (int)$member['diem_tich_luy'],
+                'discount' => (float)$member['ti_le_giam_gia']
+            ]
+        ], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        if (http_response_code() === 200) http_response_code(422);
+        echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
+if (($_GET['pos_api'] ?? '') === 'stock') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+    try {
+        $storeId = (int)($_GET['cuahang_id'] ?? $posDefaultStoreId);
+        if (!isset($posAllowedStoreLookup[$storeId])) {
+            http_response_code(403);
+            throw new RuntimeException('Bạn không có quyền truy cập tồn kho chi nhánh này.');
+        }
+        $stmtStock = $pdo->prepare("SELECT tk.sanpham_id, GREATEST(tk.so_luong, 0) AS so_luong FROM tonkho tk JOIN sanpham sp ON sp.id = tk.sanpham_id AND sp.trang_thai = 1 WHERE tk.cuahang_id = ?");
+        $stmtStock->execute([$storeId]);
+        $stock = [];
+        foreach ($stmtStock->fetchAll() as $row) {
+            $stock[(int)$row['sanpham_id']] = (int)$row['so_luong'];
+        }
+        $stmtReserved = $pdo->prepare("SELECT ct.sanpham_id, SUM(ct.so_luong) AS reserved_qty FROM hoadon hd JOIN chitiethoadon ct ON ct.hoadon_id = hd.id WHERE hd.id = ? AND hd.cuahang_id = ? AND hd.nhanvien_id = ? AND hd.trang_thai = 'Chờ thanh toán' GROUP BY ct.sanpham_id");
+        $stmtReserved->execute([(int)($_SESSION['ck_pos_active_order_id'] ?? 0), $storeId, $posStaffId]);
+        foreach ($stmtReserved->fetchAll() as $row) {
+            $id = (int)$row['sanpham_id'];
+            $stock[$id] = ($stock[$id] ?? 0) + (int)$row['reserved_qty'];
+        }
+        echo json_encode(['success' => true, 'cuahang_id' => $storeId, 'stock' => $stock], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        if (http_response_code() === 200) http_response_code(500);
+        echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
 
 if (($_GET['pos_api'] ?? '') === 'promotions') {
     header('Content-Type: application/json; charset=utf-8');
@@ -117,6 +209,19 @@ if (($_GET['pos_api'] ?? '') === 'promotions') {
         echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
     }
     exit;
+}
+
+function posStockLimitMessage(PDO $pdo, int $productId, int $storeId, int $requested, int $ownReserved = 0): string {
+    $stockStmt = $pdo->prepare("SELECT GREATEST(so_luong, 0) FROM tonkho WHERE sanpham_id = ? AND cuahang_id = ? LIMIT 1");
+    $stockStmt->execute([$productId, $storeId]);
+    $available = max(0, (int)$stockStmt->fetchColumn() + $ownReserved);
+    $nameStmt = $pdo->prepare("SELECT ten_san_pham FROM sanpham WHERE id = ? LIMIT 1");
+    $nameStmt->execute([$productId]);
+    $name = (string)($nameStmt->fetchColumn() ?: 'Sản phẩm');
+    if ($available === 0) {
+        return $name . ' đã hết hàng tại chi nhánh này. Bạn đang yêu cầu ' . number_format($requested, 0, ',', '.') . ' sản phẩm, hiện có thể mua 0 sản phẩm.';
+    }
+    return $name . ' hiện chỉ còn ' . number_format($available, 0, ',', '.') . ' sản phẩm tại chi nhánh này. Bạn đang yêu cầu ' . number_format($requested, 0, ',', '.') . ' sản phẩm. Tối đa có thể mua ' . number_format($available, 0, ',', '.') . ' sản phẩm.';
 }
 
 function cancelActivePosOrder(PDO $pdo, int $orderId): void {
@@ -168,7 +273,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pos_action'] ?? '') === 's
             $id = (int)($item['id'] ?? 0);
             $qty = (int)($item['qty'] ?? 0);
             $price = (float)($item['price'] ?? 0);
-            if ($id <= 0 || $qty <= 0 || $qty > 1000 || !is_finite($price) || $price < 0) {
+            if ($id <= 0 || $qty <= 0 || !is_finite($price) || $price < 0) {
                 throw new RuntimeException('Số lượng hoặc đơn giá sản phẩm không hợp lệ.');
             }
             if (!isset($newItems[$id])) {
@@ -221,7 +326,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pos_action'] ?? '') === 's
             $difference = $newQty - $oldQty;
             if ($difference > 0) {
                 $takeStock->execute([$difference, $productId, $storeId, $difference]);
-                if ($takeStock->rowCount() !== 1) throw new RuntimeException('Số lượng tồn kho không đủ cho sản phẩm đã chọn.');
+                if ($takeStock->rowCount() !== 1) {
+                    throw new RuntimeException(posStockLimitMessage($pdo, (int)$productId, $storeId, $newQty, $oldQty));
+                }
             } elseif ($difference < 0) {
                 $restoreStock->execute([-$difference, $productId, $storeId]);
             }
@@ -278,9 +385,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
         $tien_giam_gia  = (float)($_POST['tien_giam_gia'] ?? 0);
         $khach_phai_tra = (float)($_POST['khach_phai_tra'] ?? 0);
 
-        if (empty($cart)) { 
-            echo json_encode(['success' => false, 'message' => 'Giỏ hàng trống!']); 
-            exit; 
+        if (!is_array($cart) || empty($cart)) {
+            echo json_encode(['success' => false, 'message' => 'Giỏ hàng trống hoặc không hợp lệ.'], JSON_UNESCAPED_UNICODE);
+            exit;
         }
 
         if ($khuyenmai_id !== null) {
@@ -303,11 +410,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
         $hoadon_id = (int)$pdo->lastInsertId();
 
         $stmtCt = $pdo->prepare("INSERT INTO chitiethoadon (hoadon_id, sanpham_id, so_luong, don_gia, thanh_tien) VALUES (?, ?, ?, ?, ?)");
-        $stmtTk = $pdo->prepare("UPDATE tonkho SET so_luong = GREATEST(0, so_luong - ?) WHERE sanpham_id = ? AND cuahang_id = ?");
-
+        $stmtTk = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong - ? WHERE sanpham_id = ? AND cuahang_id = ? AND so_luong >= ?");
+        $stmtProduct = $pdo->prepare("SELECT ten_san_pham FROM sanpham WHERE id = ? AND trang_thai = 1 LIMIT 1");
         foreach ($cart as $item) {
-            $stmtCt->execute([$hoadon_id, (int)$item['id'], (int)$item['qty'], (float)$item['price'], (int)$item['qty'] * (float)$item['price']]);
-            $stmtTk->execute([(int)$item['qty'], (int)$item['id'], $cuahang_id]);
+            if (!is_array($item)) throw new RuntimeException('Dữ liệu sản phẩm không hợp lệ.');
+            $productId = (int)($item['id'] ?? 0);
+            $quantity = (int)($item['qty'] ?? 0);
+            if ($productId <= 0 || $quantity < 1 || !isset($item['qty']) || !is_numeric($item['qty'])) {
+                throw new RuntimeException('Số lượng sản phẩm không hợp lệ.');
+            }
+            $stmtProduct->execute([$productId]);
+            $product = $stmtProduct->fetch();
+            if (!$product) throw new RuntimeException('Sản phẩm không còn được phép bán.');
+            $stmtTk->execute([$quantity, $productId, $cuahang_id, $quantity]);
+            if ($stmtTk->rowCount() !== 1) {
+                throw new RuntimeException(posStockLimitMessage($pdo, $productId, $cuahang_id, $quantity));
+            }
+            $unitPrice = (float)$item['price'];
+            if (!is_finite($unitPrice) || $unitPrice < 0) throw new RuntimeException('Đơn giá sản phẩm không hợp lệ.');
+            $stmtCt->execute([$hoadon_id, $productId, $quantity, $unitPrice, $quantity * $unitPrice]);
         }
         
         $pdo->commit();
@@ -322,6 +443,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['pos_action']) && $_PO
 }
 
 $sanpham_list = $pdo->query("SELECT sp.*, dm.ten_danh_muc FROM sanpham sp LEFT JOIN danhmuc dm ON sp.danhmuc_id = dm.id WHERE sp.trang_thai = 1 ORDER BY sp.id ASC")->fetchAll();
+$posStockByStore = [];
+foreach ($posAllowedStoreIds as $allowedStoreId) {
+    $posStockByStore[(int)$allowedStoreId] = [];
+}
+$stockPlaceholders = implode(',', array_fill(0, count($posAllowedStoreIds), '?'));
+$stmtInitialStock = $pdo->prepare("SELECT tk.cuahang_id, tk.sanpham_id, GREATEST(tk.so_luong, 0) AS so_luong FROM tonkho tk JOIN sanpham sp ON sp.id = tk.sanpham_id AND sp.trang_thai = 1 WHERE tk.cuahang_id IN ($stockPlaceholders)");
+$stmtInitialStock->execute($posAllowedStoreIds);
+foreach ($stmtInitialStock->fetchAll() as $row) {
+    $posStockByStore[(int)$row['cuahang_id']][(int)$row['sanpham_id']] = (int)$row['so_luong'];
+}
+$stmtInitialReservation = $pdo->prepare("SELECT hd.cuahang_id, ct.sanpham_id, SUM(ct.so_luong) AS reserved_qty FROM hoadon hd JOIN chitiethoadon ct ON ct.hoadon_id = hd.id WHERE hd.id = ? AND hd.nhanvien_id = ? AND hd.trang_thai = 'Chờ thanh toán' GROUP BY hd.cuahang_id, ct.sanpham_id");
+$stmtInitialReservation->execute([(int)($_SESSION['ck_pos_active_order_id'] ?? 0), $posStaffId]);
+foreach ($stmtInitialReservation->fetchAll() as $row) {
+    $storeId = (int)$row['cuahang_id'];
+    $productId = (int)$row['sanpham_id'];
+    if (isset($posAllowedStoreLookup[$storeId])) {
+        $posStockByStore[$storeId][$productId] = ($posStockByStore[$storeId][$productId] ?? 0) + (int)$row['reserved_qty'];
+    }
+}
+
 
 $khachhang_list = $pdo->query("SELECT kh.*, ttd.hang_the, ttd.ti_le_giam_gia FROM khachhang kh LEFT JOIN thetichdiem ttd ON kh.thetichdiem_id = ttd.id ORDER BY kh.id ASC")->fetchAll();
 $stmtAvailablePromos = $pdo->prepare("SELECT id, cuahang_id, ten_km, ma_voucher, loai_km, gia_tri FROM khuyenmai WHERE thoi_gian_bat_dau <= ? AND thoi_gian_ket_thuc >= ? AND (so_luong IS NULL OR so_luong > 0) ORDER BY id ASC");
@@ -370,6 +511,11 @@ require ROOT_PATH . '/includes/header.php';
     .prod-item-col { height: auto !important; }
     .prod-row { position: relative; transition: all 0.2s ease; cursor: pointer; user-select: none; border: 1.5px solid var(--border-light); border-radius: 14px; display: flex; flex-direction: column; padding: 10px; background: #fff; height: 226px !important; max-height: 226px !important; overflow: hidden; }
     .prod-row:hover { transform: translateY(-3px); border-color: var(--ck-red) !important; box-shadow: 0 8px 20px rgba(238,49,36,0.12); }
+    .prod-row.is-out-stock { opacity: .62; filter: grayscale(.6); cursor: not-allowed; }
+    .prod-row.is-out-stock:hover { transform: none; border-color: var(--border-light) !important; box-shadow: none; }
+    .stock-out-tag { display: none; position: absolute; top: 8px; left: 8px; z-index: 3; background: #e11d48; color: #fff; border-radius: 7px; padding: 4px 8px; font-size: .76rem; font-weight: 700; }
+    .prod-row.is-out-stock .stock-out-tag { display: block; }
+
     .prod-row:active { transform: scale(0.97); }
     .prod-row.in-cart { border-color: var(--ck-red) !important; background: linear-gradient(180deg, rgba(238,49,36,0.04), #fff); }
     
@@ -388,6 +534,9 @@ require ROOT_PATH . '/includes/header.php';
     .qty-stepper { display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 2px 4px; }
     .qty-btn { width: 26px; height: 26px; border: none; background: #fff; border-radius: 6px; font-weight: 700; color: #334155; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: 0.15s; display: flex; align-items: center; justify-content: center; }
     .qty-btn:hover { background: var(--ck-red); color: #fff; }
+    .qty-input { width: 36px; height: 26px; text-align: center; font-size: .85rem; font-weight: 700; color: #1e293b; border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 0 2px; outline: none; -moz-appearance: textfield; appearance: textfield; }
+    .qty-input:focus { border-color: #f43f5e; background: #fff; box-shadow: 0 0 0 2px rgba(244,63,94,.1); }
+    .qty-input::-webkit-outer-spin-button, .qty-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     
     .tier-badge { font-weight: 700; border-radius: 6px; padding: 3px 8px; font-size: 0.75rem; text-transform: uppercase; }
     .tier-bac { background: #94a3b8; color: #fff; }
@@ -402,6 +551,30 @@ require ROOT_PATH . '/includes/header.php';
     .pos-customer-suggestion-name { font-weight: 700; font-size: .9rem; }
     .pos-customer-suggestion-detail { font-size: .8rem; color: #64748b; }
     .pos-customer-no-result { padding: 12px; font-size: .85rem; color: #64748b; }
+    .pos-member-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 9px; }
+    .pos-member-points { color: #64748b; font-size: .75rem; font-weight: 600; line-height: 1.35; }
+    .pos-member-add { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; border: 1px solid #fecdd3; background: #fff1f2; color: #e11d48; border-radius: 9px; padding: 7px 10px; font-weight: 800; font-size: .79rem; cursor: pointer; }
+    .pos-member-add:hover { background: #ffe4e6; }
+    .pos-member-dialog { width: min(475px, calc(100vw - 28px)); max-width: 100%; padding: 0; border: 0; border-radius: 22px; background: #fff; color: #1e293b; box-shadow: 0 25px 80px rgba(15,23,42,.23); }
+    .pos-member-dialog::backdrop { background: rgba(15,23,42,.47); backdrop-filter: blur(3px); }
+    .pos-member-dialog[open] { animation: pos-dialog-in .2s ease-out; }
+    .pos-member-content { padding: 28px; position: relative; }
+    .pos-member-heading { text-align: center; margin-bottom: 20px; }
+    .pos-member-heading-icon { width: 56px; height: 56px; border-radius: 17px; margin: 0 auto 12px; display: grid; place-items: center; font-size: 23px; background: #fff1f2; color: #e11d48; }
+    .pos-member-heading h4 { font-size: 1.22rem; font-weight: 800; margin: 0 0 5px; }
+    .pos-member-heading p { color: #64748b; font-size: .88rem; margin: 0; }
+    .pos-member-form-label { display: block; font-size: .83rem; font-weight: 750; margin-bottom: 5px; }
+    .pos-member-input { display: block; width: 100%; border: 1px solid #dce3ed; padding: 10px 12px; border-radius: 10px; outline: none; background: #fff; color: #1e293b; }
+    .pos-member-input:focus { border-color: #fb7185; box-shadow: 0 0 0 3px #ffe4e6; }
+    .pos-member-meta { margin-top: 14px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px 13px; font-size: .84rem; color: #475569; }
+    .pos-member-meta div + div { margin-top: 6px; }
+    .pos-member-message { font-size: .84rem; color: #b91c1c; min-height: 18px; margin-top: 10px; }
+    .pos-member-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+    .pos-member-actions button { border-radius: 11px; padding: 10px; border: 0; font-weight: 800; }
+    .pos-member-actions .is-cancel { background: #f1f5f9; color: #334155; }
+    .pos-member-actions .is-submit { background: linear-gradient(110deg,#e11d48,#fb573d); color: #fff; }
+    .pos-member-actions .is-submit:disabled { opacity: .65; cursor: wait; }
+    @media(max-width:480px) { .pos-member-content { padding: 24px 18px; } }
     
     .cart-item-anim { animation: slideInLeft 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
     @keyframes slideInLeft { 0% { opacity: 0; transform: translateX(-15px); } 100% { opacity: 1; transform: translateX(0); } }
@@ -481,9 +654,11 @@ require ROOT_PATH . '/includes/header.php';
                         $catName = $sp['ten_danh_muc'] ?? 'Khác';
                         $v = getVisual($sp['ten_san_pham'], $catName);
                         $imgSrc = "../../../assets/images/" . $sp['ma_san_pham'] . ".jpg";
+                        $initialStock = (int)($posStockByStore[$posDefaultStoreId][(int)$sp['id']] ?? 0);
                     ?>
                     <div class="col-6 col-md-4 col-lg-3 prod-item-col" data-cat="<?=$catName?>" data-search="<?=mb_strtolower($sp['ma_san_pham'].' '.$sp['ten_san_pham'])?>">
-                        <div id="prod-<?=$sp['id']?>" onclick="addToCart(<?=$sp['id']?>,'<?=addslashes($sp['ten_san_pham'])?>',<?=$sp['gia_ban']?>,'<?=$sp['ma_san_pham']?>')" class="prod-row">
+                        <div id="prod-<?=$sp['id']?>" onclick="addToCart(<?=$sp['id']?>,'<?=addslashes($sp['ten_san_pham'])?>',<?=$sp['gia_ban']?>,'<?=$sp['ma_san_pham']?>')" class="prod-row<?=$initialStock <= 0 ? ' is-out-stock' : ''?>" aria-disabled="<?=$initialStock <= 0 ? 'true' : 'false'?>">
+                            <span class="stock-out-tag">Hết hàng</span>
                             <span class="prod-qty-badge" id="b-<?=$sp['id']?>">0</span>
                             
                             <div class="prod-img-box">
@@ -547,6 +722,7 @@ require ROOT_PATH . '/includes/header.php';
                                     data-name="<?=htmlspecialchars($kh['ho_ten'], ENT_QUOTES, 'UTF-8')?>" 
                                     data-phone="<?=htmlspecialchars($kh['so_dien_thoai'] ?? '', ENT_QUOTES, 'UTF-8')?>"
                                     data-disc="<?=$disc?>" 
+                                    data-points="<?=(int)$kh['diem_tich_luy']?>"
                                     data-tier="<?=htmlspecialchars($tier)?>">
                                 <?= $badgeLabel ?> <?= htmlspecialchars($kh['ho_ten']) ?>
                             </option>
@@ -555,6 +731,10 @@ require ROOT_PATH . '/includes/header.php';
                     <span id="tierBadgeEl" class="tier-badge tier-none">Khách lẻ</span>
                 </div>
 
+                <div class="pos-member-toolbar">
+                    <span class="pos-member-points" id="posMemberPointsPreview">Tích 1 điểm mỗi 1.000đ thanh toán</span>
+                    <button type="button" class="pos-member-add" onclick="openPosMemberDialog()"><i class="fa-solid fa-user-plus"></i> Tạo thành viên</button>
+                </div>
                 <select class="form-select form-select-sm border-0 text-danger fw-bold shadow-sm" id="posPromoSelect" onchange="onPromoSelectChange()" style="height: 36px;">
                     <option value="" data-val="0" data-type="">-- Áp dụng Voucher / Khuyến mãi --</option>
                     <?php foreach ($khuyenmai_list as $km):
@@ -600,7 +780,40 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 </dialog>
 
+<dialog class="pos-member-dialog" id="posMemberDialog" aria-labelledby="posMemberTitle">
+    <div class="pos-member-content">
+        <button type="button" class="pos-dialog-close" onclick="closePosMemberDialog()" aria-label="Đóng"><i class="fa-solid fa-xmark"></i></button>
+        <div class="pos-member-heading">
+            <div class="pos-member-heading-icon"><i class="fa-solid fa-user-plus"></i></div>
+            <h4 id="posMemberTitle">Đăng ký thành viên</h4>
+            <p>Tạo tài khoản tích điểm Circle K cho khách hàng</p>
+        </div>
+        <form id="posMemberForm" onsubmit="registerPosMember(event)">
+            <div class="mb-3">
+                <label class="pos-member-form-label" for="posMemberName">Họ và tên khách hàng <span class="text-danger">*</span></label>
+                <input class="pos-member-input" type="text" id="posMemberName" maxlength="100" minlength="2" required autocomplete="name" placeholder="Nhập họ và tên">
+            </div>
+            <div class="mb-3">
+                <label class="pos-member-form-label" for="posMemberPhone">Số điện thoại <span class="text-danger">*</span></label>
+                <input class="pos-member-input" type="tel" inputmode="tel" id="posMemberPhone" maxlength="15" required autocomplete="tel" placeholder="Ví dụ: 0912345678">
+            </div>
+            <div class="pos-member-meta">
+                <div><i class="fa-solid fa-store me-1"></i> Chi nhánh: <strong id="posMemberStoreName"></strong></div>
+                <div><i class="fa-solid fa-id-card me-1"></i> Hạng khi đăng ký: <strong>Bạc</strong> – 0 điểm</div>
+                <div><i class="fa-solid fa-star me-1"></i> Cứ 1.000đ thanh toán thành công được 1 điểm</div>
+                <div><i class="fa-solid fa-arrow-trend-up me-1"></i> Hạng thẻ được cập nhật tự động theo tổng điểm</div>
+            </div>
+            <div class="pos-member-message" id="posMemberMessage" role="status" aria-live="polite"></div>
+            <div class="pos-member-actions">
+                <button type="button" class="is-cancel" onclick="closePosMemberDialog()">Đóng</button>
+                <button type="submit" class="is-submit" id="posMemberSubmit"><i class="fa-solid fa-check me-1"></i> Tạo thành viên</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
 <script>
+    const posMemberCsrf = <?= json_encode($posMemberCsrf) ?>;
     const posSignedInUserId = <?= (int)$_SESSION['user_id'] ?>;
     let pendingActiveOrderId = <?= (int)($_SESSION['ck_pos_active_order_id'] ?? 0) ?>;
     let pendingCartSync = Promise.resolve();
@@ -610,6 +823,54 @@ require ROOT_PATH . '/includes/header.php';
     const posDefaultStoreId = <?= $posDefaultStoreId ?>;
     const posCanSwitchStore = <?= $posCanSwitchStore ? 'true' : 'false' ?>;
     const posRegionalAssignments = <?= json_encode($posRegionalAssignments, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const posStockByStore = <?= json_encode($posStockByStore, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
+    function getPosStock(productId) {
+        const storeId = document.getElementById('posStoreSelect').value;
+        return Math.max(0, Number((posStockByStore[storeId] || {})[String(productId)] || 0));
+    }
+
+    function renderPosStock() {
+        document.querySelectorAll('.prod-row[id^="prod-"]').forEach(element => {
+            const productId = Number(element.id.substring(5));
+            const outOfStock = getPosStock(productId) <= 0;
+            element.classList.toggle('is-out-stock', outOfStock);
+            element.setAttribute('aria-disabled', outOfStock ? 'true' : 'false');
+        });
+    }
+
+    async function refreshPosStock() {
+        const storeId = document.getElementById('posStoreSelect').value;
+        const url = new URL(window.location.pathname, window.location.href);
+        url.searchParams.set('pos_api', 'stock');
+        url.searchParams.set('cuahang_id', storeId);
+        const response = await fetch(url.toString(), {cache: 'no-store'});
+        if (!response.ok) throw new Error('Không thể kiểm tra tồn kho tại cửa hàng.');
+        const result = await response.json();
+        if (!result.success || !result.stock || Number(result.cuahang_id) !== Number(storeId)) {
+            throw new Error(result.message || 'Dữ liệu tồn kho không hợp lệ.');
+        }
+        posStockByStore[storeId] = result.stock;
+        if (document.getElementById('posStoreSelect').value === storeId) renderPosStock();
+        return result.stock;
+    }
+
+    function showStockWarning(name, remaining, requested = null) {
+        const maximum = Math.max(0, Math.trunc(Number(remaining) || 0));
+        const storeName = document.getElementById('posStoreSelect').selectedOptions[0]?.textContent.trim() || 'chi nhánh hiện tại';
+        const requestedText = requested === null ? '' : String(requested).replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        const wanted = requested === null ? '' : `Bạn yêu cầu ${requestedText} sản phẩm. `;
+        const available = maximum === 0
+            ? `${name} đã hết hàng tại ${storeName}. Hiện không thể mua sản phẩm này.`
+            : `${name} tại ${storeName} chỉ còn ${maximum.toLocaleString('vi-VN')} sản phẩm. Bạn có thể mua tối đa ${maximum.toLocaleString('vi-VN')} sản phẩm.`;
+        openPosNotice({
+            title: maximum === 0 ? 'Sản phẩm đã hết hàng' : 'Không đủ số lượng tồn kho',
+            message: wanted + available,
+            mode: 'info', confirmText: 'Đã hiểu'
+        });
+    }
+
+
     let allPromoOptions = Array.from(document.querySelectorAll('#posPromoSelect option')).slice(1);
 
     async function refreshPosPromotions() {
@@ -751,6 +1012,8 @@ require ROOT_PATH . '/includes/header.php';
         document.getElementById('posBranchManagerName').textContent = assignedManagers.branch || 'Chưa phân công';
         localStorage.setItem('ck_pos_store', branchSelect.value);
         localStorage.setItem('ck_pos_staff', String(posSignedInStaffId));
+        renderPosStock();
+        refreshPosStock().catch(error => console.error(error));
         updatePromoByBranch();
         refreshPosPromotions();
     }
@@ -934,33 +1197,131 @@ require ROOT_PATH . '/includes/header.php';
         await pendingCartSync;
     }
 
-    function addToCart(id, name, price, sku) {
-        beep(); 
-        const i = cart.findIndex(x => x.id === id);
-        if (i > -1) { 
-            let item = cart.splice(i, 1)[0]; 
-            item.qty++; 
-            cart.unshift(item); 
-        } else { 
-            cart.unshift({id, name, price, sku: sku, qty:1}); 
+    async function addToCart(id, name, price, sku) {
+        const selectedStore = document.getElementById('posStoreSelect').value;
+        try {
+            await refreshPosStock();
+        } catch (error) {
+            openPosNotice({title: 'Không kiểm tra được tồn kho', message: error.message, mode: 'info'});
+            return;
+        }
+        if (document.getElementById('posStoreSelect').value !== selectedStore) return;
+        const existing = cart.find(item => Number(item.id) === Number(id));
+        const remaining = getPosStock(id);
+        if ((existing ? Number(existing.qty) : 0) >= remaining) {
+            showStockWarning(name, remaining, (existing ? Number(existing.qty) : 0) + 1);
+            return;
+        }
+        beep();
+        const index = cart.findIndex(item => Number(item.id) === Number(id));
+        if (index > -1) {
+            const item = cart.splice(index, 1)[0];
+            item.qty++;
+            cart.unshift(item);
+        } else {
+            cart.unshift({id, name, price, sku, qty: 1});
         }
         drawCart();
         markPendingCartChanged();
         document.getElementById('cartBox').scrollTop = 0;
     }
 
-    function uQty(id, d) {
-        const i = cart.findIndex(x => x.id === id);
-        if(i > -1) { 
-            let item = cart.splice(i, 1)[0];
-            item.qty += d; 
-            if(item.qty > 0) {
-                cart.unshift(item);
+    async function uQty(id, delta) {
+        const index = cart.findIndex(item => Number(item.id) === Number(id));
+        if (index < 0) return;
+        if (delta > 0) {
+            const selectedStore = document.getElementById('posStoreSelect').value;
+            try {
+                await refreshPosStock();
+            } catch (error) {
+                openPosNotice({title: 'Không kiểm tra được tồn kho', message: error.message, mode: 'info'});
+                return;
             }
-            drawCart();
-            markPendingCartChanged();
-            document.getElementById('cartBox').scrollTop = 0;
+            if (document.getElementById('posStoreSelect').value !== selectedStore) return;
+            const refreshedItem = cart.find(item => Number(item.id) === Number(id));
+            if (!refreshedItem) return;
+            if (refreshedItem.qty + delta > getPosStock(id)) {
+                showStockWarning(refreshedItem.name, getPosStock(id), refreshedItem.qty + delta);
+                return;
+            }
         }
+        const currentIndex = cart.findIndex(item => Number(item.id) === Number(id));
+        if (currentIndex < 0) return;
+        const item = cart.splice(currentIndex, 1)[0];
+        item.qty += delta;
+        if (item.qty > 0) cart.unshift(item);
+        drawCart();
+        markPendingCartChanged();
+        document.getElementById('cartBox').scrollTop = 0;
+    }
+
+    const posQuantityCommits = new Set();
+
+    function commitPosQuantityInput(input, id) {
+        if (input.dataset.committing === '1') return Promise.resolve(true);
+        input.dataset.committing = '1';
+        const work = setQty(id, input.value);
+        posQuantityCommits.add(work);
+        work.finally(() => {
+            posQuantityCommits.delete(work);
+            input.dataset.committing = '0';
+        });
+        return work;
+    }
+
+    async function flushPosQuantityInputs() {
+        const inputs = Array.from(document.querySelectorAll('.qty-input'));
+        for (const input of inputs) {
+            const id = Number(input.dataset.productId);
+            const item = cart.find(product => Number(product.id) === id);
+            if (item && input.dataset.committing !== '1' && input.value.trim() !== String(item.qty)) {
+                commitPosQuantityInput(input, id);
+            }
+        }
+        const results = await Promise.all(Array.from(posQuantityCommits));
+        return results.every(Boolean);
+    }
+
+    async function setQty(id, value) {
+        const initialItem = cart.find(item => Number(item.id) === Number(id));
+        if (!initialItem) return false;
+        const raw = String(value).trim();
+        if (!/^\d+$/.test(raw)) {
+            drawCart();
+            openPosNotice({title: 'Số lượng không hợp lệ', message: 'Vui lòng nhập một số nguyên từ 0 trở lên. Nhập 0 nếu muốn xóa sản phẩm.', mode: 'info'});
+            return false;
+        }
+        const requestedQuantity = BigInt(raw);
+        const originalQuantity = Number(initialItem.qty);
+        if (requestedQuantity === BigInt(originalQuantity)) return true;
+        if (requestedQuantity > 0n) {
+            const storeId = document.getElementById('posStoreSelect').value;
+            try {
+                await refreshPosStock();
+            } catch (error) {
+                drawCart();
+                openPosNotice({title: 'Không kiểm tra được tồn kho', message: error.message, mode: 'info'});
+                return false;
+            }
+            if (document.getElementById('posStoreSelect').value !== storeId) {
+                drawCart();
+                return false;
+            }
+            const remaining = getPosStock(id);
+            if (requestedQuantity > BigInt(remaining)) {
+                drawCart();
+                showStockWarning(initialItem.name, remaining, raw);
+                return false;
+            }
+        }
+        const quantity = Number(requestedQuantity);
+        const current = cart.find(item => Number(item.id) === Number(id));
+        if (!current) return false;
+        if (quantity === 0) cart = cart.filter(item => Number(item.id) !== Number(id));
+        else current.qty = quantity;
+        drawCart();
+        markPendingCartChanged();
+        return true;
     }
 
     function drawCart() {
@@ -982,7 +1343,7 @@ require ROOT_PATH . '/includes/header.php';
                     </div>
                     <div class="d-flex flex-column align-items-end gap-1">
                         <span class="num-font fw-bold text-dark" style="min-width:75px; text-align:right;">${fVND(i.price*i.qty)}</span>
-                        <div class="qty-stepper mt-1"><button class="qty-btn" onclick="uQty(${i.id},-1)"><i class="fa-solid fa-minus" style="font-size:10px"></i></button><span class="small fw-bold px-2">${i.qty}</span><button class="qty-btn" onclick="uQty(${i.id},1)"><i class="fa-solid fa-plus" style="font-size:10px"></i></button></div>
+                        <div class="qty-stepper mt-1"><button class="qty-btn" onclick="uQty(${i.id},-1)"><i class="fa-solid fa-minus" style="font-size:10px"></i></button><input type="text" class="qty-input" data-product-id="${i.id}" value="${i.qty}" inputmode="numeric" pattern="[0-9]*" aria-label="Nhập số lượng" title="Nhập số lượng rồi nhấn Enter hoặc bấm ra ngoài" onchange="commitPosQuantityInput(this,${i.id})" onkeydown="if(event.key === 'Enter'){event.preventDefault();this.blur();}" onclick="event.stopPropagation()"><button class="qty-btn" onclick="uQty(${i.id},1)"><i class="fa-solid fa-plus" style="font-size:10px"></i></button></div>
                     </div>
                 </div>`;
                 const cEl = document.getElementById('prod-'+i.id), bEl = document.getElementById('b-'+i.id);
@@ -1005,8 +1366,9 @@ require ROOT_PATH . '/includes/header.php';
         
         const c = document.getElementById('posCustomerSelect').options[document.getElementById('posCustomerSelect').selectedIndex];
         if(c && c.value && s>0) {
-            let discRate = parseFloat(c.dataset.disc) || 0;
-            if (discRate === 0) {
+            let discRate = Number(c.dataset.disc);
+            if (!Number.isFinite(discRate)) discRate = 0;
+            if (c.dataset.disc === undefined || c.dataset.disc === '') {
                 const tName = (c.dataset.tier || '').toLowerCase();
                 if (tName.includes('bạc')) discRate = 2;
                 else if (tName.includes('vàng')) discRate = 5;
@@ -1114,6 +1476,94 @@ require ROOT_PATH . '/includes/header.php';
         input.setAttribute('aria-expanded', 'true');
     }
 
+    function updatePosMemberPointsPreview() {
+        const select = document.getElementById('posCustomerSelect');
+        const option = select.selectedOptions[0];
+        const preview = document.getElementById('posMemberPointsPreview');
+        if (option && /^\d+$/.test(option.value)) {
+            const points = Math.max(0, Number(option.dataset.points || 0));
+            preview.textContent = 'Điểm tích lũy: ' + points.toLocaleString('vi-VN') + ' điểm';
+        } else {
+            preview.textContent = 'Tích 1 điểm mỗi 1.000đ thanh toán';
+        }
+    }
+
+    function openPosMemberDialog() {
+        const dialog = document.getElementById('posMemberDialog');
+        const select = document.getElementById('posCustomerSelect');
+        const name = select.value === '__manual__' ? document.getElementById('posCustomerInput').value.trim() : '';
+        document.getElementById('posMemberForm').reset();
+        document.getElementById('posMemberName').value = name;
+        document.getElementById('posMemberStoreName').textContent = document.getElementById('posStoreSelect').selectedOptions[0]?.textContent.trim() || '';
+        document.getElementById('posMemberMessage').textContent = '';
+        if (!dialog.open) dialog.showModal();
+        document.getElementById(name ? 'posMemberPhone' : 'posMemberName').focus();
+    }
+
+    function closePosMemberDialog() {
+        const dialog = document.getElementById('posMemberDialog');
+        if (dialog.open) dialog.close();
+    }
+
+    async function registerPosMember(event) {
+        event.preventDefault();
+        const form = document.getElementById('posMemberForm');
+        if (!form.reportValidity()) return;
+        const name = document.getElementById('posMemberName').value.trim();
+        const phone = document.getElementById('posMemberPhone').value.trim().replace(/[\s.\-]/g, '');
+        const message = document.getElementById('posMemberMessage');
+        const button = document.getElementById('posMemberSubmit');
+        if (!/^0\d{9,10}$/.test(phone)) {
+            message.textContent = 'Số điện thoại phải có 10 hoặc 11 chữ số, bắt đầu bằng số 0.';
+            return;
+        }
+        button.disabled = true;
+        message.textContent = '';
+        try {
+            const data = new FormData();
+            data.append('pos_action', 'register_member');
+            data.append('csrf_token', posMemberCsrf);
+            data.append('ho_ten', name);
+            data.append('so_dien_thoai', phone);
+            data.append('cuahang_id', document.getElementById('posStoreSelect').value);
+            const response = await fetch(window.location.pathname, {method: 'POST', body: data, cache: 'no-store'});
+            const result = await response.json();
+            if (!result.success || !result.member) throw new Error(result.message || 'Không thể đăng ký thành viên.');
+            const member = result.member;
+            const select = document.getElementById('posCustomerSelect');
+            removeManualCustomerOption();
+            let option = Array.from(select.options).find(o => o.value === String(member.id));
+            if (!option) {
+                option = document.createElement('option');
+                option.value = String(member.id);
+                select.appendChild(option);
+            }
+            option.dataset.name = member.name;
+            option.dataset.phone = member.phone;
+            option.dataset.disc = String(member.discount);
+            option.dataset.points = String(member.points);
+            option.dataset.tier = member.tier || 'Bạc';
+            option.textContent = '[' + (member.tier || 'Bạc') + '] ' + member.name;
+            select.value = option.value;
+            handleCustomerSelect();
+            updatePosMemberPointsPreview();
+            saveState();
+            markPendingCartChanged();
+            closePosMemberDialog();
+            openPosNotice({
+                title: result.existing ? 'Thành viên đã tồn tại' : 'Tạo thành viên thành công',
+                message: result.existing
+                    ? 'Số điện thoại này đã được đăng ký cho ' + member.name + '. Đã chọn thành viên có ' + member.points + ' điểm.'
+                    : 'Đã đăng ký ' + member.name + ' với hạng ' + member.tier + ', 0 điểm. Khi thanh toán thành công, điểm sẽ được cộng tự động.',
+                mode: 'info', confirmText: 'Đã hiểu'
+            });
+        } catch (error) {
+            message.textContent = error.message || 'Không thể tạo thành viên. Vui lòng thử lại.';
+        } finally {
+            button.disabled = false;
+        }
+    }
+
     function handleCustomerSelect() {
         const sel = document.getElementById('posCustomerSelect');
         const opt = sel.options[sel.selectedIndex];
@@ -1121,6 +1571,7 @@ require ROOT_PATH . '/includes/header.php';
         if (opt.value !== '__manual__') removeManualCustomerOption();
         document.getElementById('posCustomerInput').value = opt.value ? (opt.dataset.name || '') : '';
         updateTierBadge(opt.dataset.tier || '');
+        updatePosMemberPointsPreview();
         calcTotal();
         closeCustomerSuggestions();
     }
@@ -1153,6 +1604,7 @@ require ROOT_PATH . '/includes/header.php';
             sel.value = '';
             updateTierBadge('none');
         }
+        updatePosMemberPointsPreview();
         calcTotal();
         updateCustomerSuggestions();
     }
@@ -1192,6 +1644,20 @@ require ROOT_PATH . '/includes/header.php';
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang chốt đơn...';
         try {
+            if (!await flushPosQuantityInputs()) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
+                return;
+            }
+            if (cart.length === 0) throw new Error('Giỏ hàng trống.');
+            await refreshPosStock();
+            const exceeding = cart.find(item => Number(item.qty) > getPosStock(item.id));
+            if (exceeding) {
+                showStockWarning(exceeding.name, getPosStock(exceeding.id), exceeding.qty);
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
+                return;
+            }
             await flushPendingCartSync();
             if (cart.length === 0) throw new Error('Giỏ hàng trống.');
             let orderId = currentPendingOrderId();
@@ -1207,7 +1673,7 @@ require ROOT_PATH . '/includes/header.php';
             }
             window.location.assign(targetHref.split('?')[0] + '?id=' + orderId);
         } catch (error) {
-            alert('Lỗi: ' + error.message);
+            openPosNotice({title: 'Không thể chuyển thanh toán', message: error.message, mode: 'info'});
             btn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-credit-card me-2"></i>Thanh toán đơn hàng';
         }
@@ -1230,6 +1696,7 @@ require ROOT_PATH . '/includes/header.php';
         removeManualCustomerOption();
         document.getElementById('posCustomerSelect').selectedIndex = 0;
         updateTierBadge('none');
+        updatePosMemberPointsPreview();
         document.getElementById('posPromoSelect').selectedIndex = 0;
         document.getElementById('posPromoCodeInput').value = '';
         clearPromoFeedback();
@@ -1310,8 +1777,13 @@ require ROOT_PATH . '/includes/header.php';
             document.getElementById('posPromoCodeInput').value = option ? (option.dataset.code || '') : '';
         }
         drawCart();
+        renderPosStock();
         triggerSearch('', false);
         window.addEventListener('focus', refreshPosPromotions);
+        window.addEventListener('focus', () => refreshPosStock().catch(error => console.error(error)));
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) refreshPosStock().catch(error => console.error(error));
+        });
         ['posCustomerSelect', 'posPromoSelect', 'posStoreSelect'].forEach(id => {
             document.getElementById(id).addEventListener('change', () => {
                 calcTotal();
@@ -1427,6 +1899,7 @@ require ROOT_PATH . '/includes/header.php';
                 localStorage.removeItem('ck_pos_customer_name');
                 document.getElementById('posPromoCodeInput').value = '';
                 updateTierBadge('none');
+                updatePosMemberPointsPreview();
                 drawCart();
             }
         });

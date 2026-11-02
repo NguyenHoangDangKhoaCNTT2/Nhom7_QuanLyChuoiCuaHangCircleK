@@ -34,27 +34,49 @@ if ($cuaHangId <= 0) {
 if (($_GET['ajax'] ?? '') === 'chi_tiet') {
     header('Content-Type: application/json; charset=utf-8');
     $hoadonId = (int)($_GET['id'] ?? 0);
-    $stmtHd = $pdo->prepare("SELECT hd.*, ch.ten_cua_hang, nv.ho_ten AS ten_nv,
-                                     COALESCE(NULLIF(TRIM(hd.ten_khach_nhap), ''), kh.ho_ten) AS ten_kh,
-                                     kh.so_dien_thoai AS sdt_kh, tt.phuong_thuc
-                              FROM hoadon hd
-                              LEFT JOIN cuahang ch ON ch.id = hd.cuahang_id
-                              LEFT JOIN nhanvien nv ON nv.id = hd.nhanvien_id
-                              LEFT JOIN khachhang kh ON kh.id = hd.khachhang_id
-                              LEFT JOIN thanhtoan tt ON tt.hoadon_id = hd.id
-                              WHERE hd.id = ? AND hd.cuahang_id = ?");
-    $stmtHd->execute([$hoadonId, $cuaHangId]);
-    $hd = $stmtHd->fetch();
-    if (!$hd) {
-        echo json_encode(['success' => false, 'message' => 'Không tìm thấy hóa đơn tại cửa hàng của bạn.']);
-        exit;
+    try {
+        $paymentColumns = $pdo->query("SHOW COLUMNS FROM thanhtoan")->fetchAll(PDO::FETCH_COLUMN, 0);
+        $paymentGivenSql = in_array('tien_khach_dua', $paymentColumns, true) ? 'tt.tien_khach_dua' : 'NULL AS tien_khach_dua';
+        $paymentChangeSql = in_array('tien_thoi', $paymentColumns, true) ? 'tt.tien_thoi' : 'NULL AS tien_thoi';
+        $sqlDetail = "SELECT hd.*, ch.ma_cua_hang, ch.ten_cua_hang, ch.dia_chi AS dia_chi_ch,
+                             ch.so_dien_thoai AS sdt_ch, nv.ho_ten AS ten_nv,
+                             COALESCE(NULLIF(TRIM(hd.ten_khach_nhap), ''), kh.ho_ten, 'Khách lẻ') AS ten_kh,
+                             kh.so_dien_thoai AS sdt_kh, kh.diem_tich_luy, kh.ngay_dang_ky,
+                             ttd.hang_the, km.ten_km, km.ma_voucher,
+                             tt.phuong_thuc, tt.so_tien_thanh_toan, tt.thoi_gian_thanh_toan,
+                             $paymentGivenSql, $paymentChangeSql
+                      FROM hoadon hd
+                      LEFT JOIN cuahang ch ON ch.id = hd.cuahang_id
+                      LEFT JOIN nhanvien nv ON nv.id = hd.nhanvien_id
+                      LEFT JOIN khachhang kh ON kh.id = hd.khachhang_id
+                      LEFT JOIN thetichdiem ttd ON ttd.id = kh.thetichdiem_id
+                      LEFT JOIN khuyenmai km ON km.id = hd.khuyenmai_id
+                      LEFT JOIN thanhtoan tt ON tt.id = (
+                          SELECT MAX(t2.id) FROM thanhtoan t2 WHERE t2.hoadon_id = hd.id
+                      )
+                      WHERE hd.id = ? AND hd.cuahang_id = ?";
+        $stmtHd = $pdo->prepare($sqlDetail);
+        $stmtHd->execute([$hoadonId, $cuaHangId]);
+        $hd = $stmtHd->fetch();
+        if (!$hd) {
+            echo json_encode(['success' => false, 'message' => 'Không tìm thấy hóa đơn tại cửa hàng của bạn.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $stmtCt = $pdo->prepare("SELECT ct.so_luong, ct.don_gia, ct.thanh_tien,
+                                        sp.ten_san_pham, sp.ma_san_pham
+                                 FROM chitiethoadon ct
+                                 JOIN sanpham sp ON sp.id = ct.sanpham_id
+                                 WHERE ct.hoadon_id = ? ORDER BY ct.id ASC");
+        $stmtCt->execute([$hoadonId]);
+        $hd['chi_tiet'] = $stmtCt->fetchAll();
+        $hd['so_mat_hang'] = count($hd['chi_tiet']);
+        $hd['so_san_pham'] = array_sum(array_map(static fn($sp) => (int)$sp['so_luong'], $hd['chi_tiet']));
+        $hd['vat_tinh_tu_hoa_don'] = max(0, (float)$hd['khach_phai_tra'] - ((float)$hd['tong_tien'] - (float)$hd['tien_giam_gia']));
+        echo json_encode(['success' => true, 'hoadon' => $hd], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Không thể tải chi tiết hóa đơn.'], JSON_UNESCAPED_UNICODE);
     }
-    $stmtCt = $pdo->prepare("SELECT ct.so_luong, ct.don_gia, ct.thanh_tien, sp.ten_san_pham, sp.ma_san_pham
-                              FROM chitiethoadon ct JOIN sanpham sp ON sp.id = ct.sanpham_id
-                              WHERE ct.hoadon_id = ?");
-    $stmtCt->execute([$hoadonId]);
-    $hd['chi_tiet'] = $stmtCt->fetchAll();
-    echo json_encode(['success' => true, 'hoadon' => $hd], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -140,7 +162,7 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
 <div class="modal fade" id="modalChiTiet" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title fw-bold" id="ctTitle">Chi tiết hóa đơn</h5>
@@ -153,48 +175,144 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 </div>
 
+<style>
+#modalChiTiet .modal-content { border: 0; border-radius: 18px; overflow: hidden; }
+#modalChiTiet .modal-header { border-bottom: 1px solid #e9eef5; }
+#modalChiTiet .modal-body { background: #f8fafc; }
+#modalChiTiet .ct-card { background: #fff; border: 1px solid #e7ecf3; border-radius: 13px; padding: 18px; height: 100%; }
+#modalChiTiet .ct-card-title { font-size: .92rem; color: #172033; font-weight: 800; margin-bottom: 13px; }
+#modalChiTiet .ct-field { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 9px; font-size: .86rem; }
+#modalChiTiet .ct-field > span:first-child { color: #64748b; flex-shrink: 0; }
+#modalChiTiet .ct-field > span:last-child { color: #1e293b; font-weight: 650; text-align: right; overflow-wrap: anywhere; }
+#modalChiTiet .ct-table th { background: #f1f5f9; color: #475569; font-size: .78rem; white-space: nowrap; }
+#modalChiTiet .ct-table td { font-size: .86rem; vertical-align: middle; }
+#modalChiTiet .ct-total { color: #e11d48; font-size: 1.38rem; font-weight: 850; }
+#modalChiTiet .ct-note { font-size: .76rem; color: #94a3b8; }
+</style>
 <script>
+function ctEsc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function ctMoney(value) {
+    return Number(value || 0).toLocaleString('vi-VN') + ' ₫';
+}
+function ctNumber(value) {
+    return Number(value || 0).toLocaleString('vi-VN');
+}
+function ctTime(value) {
+    if (!value) return 'Chưa ghi nhận';
+    const parsed = new Date(String(value).replace(' ', 'T'));
+    if (Number.isNaN(parsed.getTime())) return ctEsc(value);
+    return parsed.toLocaleString('vi-VN', {hour12: false});
+}
+function ctField(label, value) {
+    return `<div class="ct-field"><span>${ctEsc(label)}</span><span>${value}</span></div>`;
+}
 function xemChiTiet(id) {
-    const modal = new bootstrap.Modal(document.getElementById('modalChiTiet'));
+    const body = document.getElementById('ctBody');
     document.getElementById('ctTitle').innerText = 'Chi tiết hóa đơn #HD-' + id;
-    document.getElementById('ctBody').innerHTML = '<div class="text-center py-4 text-muted">Đang tải...</div>';
-    modal.show();
-    fetch('index.php?ajax=chi_tiet&id=' + id)
-        .then(r => r.json())
-        .then(data => {
-            if (!data.success) {
-                document.getElementById('ctBody').innerHTML = '<div class="text-center py-4 text-danger">' + data.message + '</div>';
-                return;
-            }
-            const hd = data.hoadon;
-            let rows = hd.chi_tiet.map(ct => `
+    body.innerHTML = '<div class="text-center py-4 text-muted">Đang tải...</div>';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalChiTiet')).show();
+    fetch('index.php?ajax=chi_tiet&id=' + encodeURIComponent(id))
+        .then(async response => {
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || 'Không thể tải chi tiết hóa đơn.');
+            return data.hoadon;
+        })
+        .then(hd => {
+            const items = Array.isArray(hd.chi_tiet) ? hd.chi_tiet : [];
+            const rows = items.map((ct, i) => `
                 <tr>
-                    <td>${ct.ten_san_pham}</td>
-                    <td class="text-center">${ct.so_luong}</td>
-                    <td class="text-end">${Number(ct.don_gia).toLocaleString('vi-VN')} ₫</td>
-                    <td class="text-end">${Number(ct.thanh_tien).toLocaleString('vi-VN')} ₫</td>
+                    <td class="text-center">${i + 1}</td>
+                    <td class="text-nowrap">${ctEsc(ct.ma_san_pham)}</td>
+                    <td>${ctEsc(ct.ten_san_pham)}</td>
+                    <td class="text-end text-nowrap">${ctMoney(ct.don_gia)}</td>
+                    <td class="text-center">${ctNumber(ct.so_luong)}</td>
+                    <td class="text-end text-nowrap fw-semibold">${ctMoney(ct.thanh_tien)}</td>
                 </tr>`).join('');
-            document.getElementById('ctBody').innerHTML = `
-                <div class="row g-2 mb-3 small">
-                    <div class="col-6"><strong>Khách hàng:</strong> ${hd.ten_kh || 'Khách lẻ'}</div>
-                    <div class="col-6"><strong>SĐT:</strong> ${hd.sdt_kh || '-'}</div>
-                    <div class="col-6"><strong>Nhân viên bán:</strong> ${hd.ten_nv || '-'}</div>
-                    <div class="col-6"><strong>Phương thức:</strong> ${hd.phuong_thuc || 'Tiền mặt'}</div>
-                    <div class="col-6"><strong>Thời gian:</strong> ${hd.ngay_tao}</div>
-                    <div class="col-6"><strong>Trạng thái:</strong> ${hd.trang_thai}</div>
-                </div>
-                <table class="table table-modern mb-2">
-                    <thead><tr><th>Sản phẩm</th><th class="text-center">SL</th><th class="text-end">Đơn giá</th><th class="text-end">Thành tiền</th></tr></thead>
-                    <tbody>${rows}</tbody>
-                </table>
-                <div class="text-end small">
-                    <div>Tạm tính: <strong>${Number(hd.tong_tien).toLocaleString('vi-VN')} ₫</strong></div>
-                    <div>Giảm giá: <strong>${Number(hd.tien_giam_gia).toLocaleString('vi-VN')} ₫</strong></div>
-                    <div class="fs-6 mt-1">Khách phải trả: <strong class="text-danger">${Number(hd.khach_phai_tra).toLocaleString('vi-VN')} ₫</strong></div>
+            const hasMember = hd.khachhang_id !== null && Number(hd.khachhang_id) > 0;
+            const hasPayment = hd.thoi_gian_thanh_toan !== null;
+            const cash = hd.phuong_thuc === 'Tiền mặt';
+            const customerGiven = hd.tien_khach_dua !== null && hd.tien_khach_dua !== '';
+            const changeRecorded = hd.tien_thoi !== null && hd.tien_thoi !== '';
+            const payAmount = hd.so_tien_thanh_toan !== null ? ctMoney(hd.so_tien_thanh_toan) : 'Chưa ghi nhận';
+            const givenAmount = cash && customerGiven ? ctMoney(hd.tien_khach_dua) : 'Chưa ghi nhận';
+            const changeAmount = cash && changeRecorded ? ctMoney(hd.tien_thoi) : 'Chưa ghi nhận';
+            const method = hasPayment ? ctEsc(hd.phuong_thuc || 'Không xác định') : 'Chưa thanh toán';
+            const subtotal = Number(hd.tong_tien || 0);
+            const discount = Number(hd.tien_giam_gia || 0);
+            const vat = Number(hd.vat_tinh_tu_hoa_don || 0);
+            const total = Number(hd.khach_phai_tra || 0);
+            const memberDetails = hasMember ? `
+                ${ctField('Hạng thẻ hiện tại', ctEsc(hd.hang_the || 'Chưa có hạng'))}
+                ${ctField('Điểm tích lũy hiện tại', ctNumber(hd.diem_tich_luy) + ' điểm')}
+                ${ctField('Ngày đăng ký', ctTime(hd.ngay_dang_ky))}
+                <div class="ct-note">Điểm và hạng thẻ là dữ liệu hiện tại, không phải thời điểm lập hóa đơn.</div>` :
+                '<div class="ct-note">Khách chưa liên kết tài khoản thành viên.</div>';
+            body.innerHTML = `
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <div class="ct-card">
+                            <div class="ct-card-title"><i class="fa-solid fa-store me-2 text-primary"></i>Thông tin hóa đơn & cửa hàng</div>
+                            ${ctField('Mã hóa đơn', '<strong>#HD-' + Number(hd.id) + '</strong>')}
+                            ${ctField('Trạng thái', ctEsc(hd.trang_thai || '-'))}
+                            ${ctField('Cửa hàng', ctEsc(hd.ten_cua_hang || '-'))}
+                            ${ctField('Mã cửa hàng', ctEsc(hd.ma_cua_hang || '-'))}
+                            ${ctField('Địa chỉ', ctEsc(hd.dia_chi_ch || '-'))}
+                            ${ctField('SĐT cửa hàng', ctEsc(hd.sdt_ch || '-'))}
+                            ${ctField('Ngày lập', ctTime(hd.ngay_tao))}
+                            ${ctField('Ngày thanh toán', ctTime(hd.thoi_gian_thanh_toan))}
+                            ${ctField('Nhân viên bán', ctEsc(hd.ten_nv || '-'))}
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="ct-card">
+                            <div class="ct-card-title"><i class="fa-solid fa-user me-2 text-primary"></i>Khách hàng & ưu đãi</div>
+                            ${ctField('Khách hàng', ctEsc(hd.ten_kh || 'Khách lẻ'))}
+                            ${ctField('Số điện thoại', ctEsc(hd.sdt_kh || '-'))}
+                            ${memberDetails}
+                            <hr class="my-3">
+                            ${ctField('Chương trình ưu đãi', ctEsc(hd.ten_km || 'Không áp dụng'))}
+                            ${ctField('Mã voucher', ctEsc(hd.ma_voucher || '-'))}
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="ct-card">
+                            <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-3">
+                                <div class="ct-card-title mb-0"><i class="fa-solid fa-basket-shopping me-2 text-primary"></i>Danh sách sản phẩm</div>
+                                <div class="text-muted small">${ctNumber(hd.so_mat_hang)} mặt hàng · ${ctNumber(hd.so_san_pham)} sản phẩm</div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table ct-table mb-0">
+                                    <thead><tr><th>STT</th><th>Mã SP</th><th>Tên sản phẩm</th><th class="text-end">Đơn giá</th><th class="text-center">SL</th><th class="text-end">Thành tiền</th></tr></thead>
+                                    <tbody>${rows || '<tr><td colspan="6" class="text-center text-muted py-3">Không có sản phẩm</td></tr>'}</tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="ct-card">
+                            <div class="ct-card-title"><i class="fa-solid fa-credit-card me-2 text-primary"></i>Chi tiết thanh toán</div>
+                            ${ctField('Hình thức', method)}
+                            ${ctField('Số tiền giao dịch', payAmount)}
+                            ${cash ? ctField('Tiền khách đưa', givenAmount) + ctField('Tiền thối lại', changeAmount) : ''}
+                            ${!hasPayment ? '<div class="ct-note">Hóa đơn chưa có bản ghi thanh toán thành công.</div>' : ''}
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="ct-card">
+                            <div class="ct-card-title"><i class="fa-solid fa-file-invoice-dollar me-2 text-primary"></i>Tổng kết tiền</div>
+                            ${ctField('Tạm tính', ctMoney(subtotal))}
+                            ${ctField('Giảm giá / khuyến mãi', '- ' + ctMoney(discount))}
+                            ${ctField('Thuế GTGT trong tổng tiền', ctMoney(vat))}
+                            <hr class="my-2">
+                            <div class="d-flex justify-content-between align-items-center gap-2"><strong>KHÁCH PHẢI TRẢ</strong><span class="ct-total">${ctMoney(total)}</span></div>
+                        </div>
+                    </div>
                 </div>`;
         })
-        .catch(() => {
-            document.getElementById('ctBody').innerHTML = '<div class="text-center py-4 text-danger">Lỗi kết nối, vui lòng thử lại.</div>';
+        .catch(error => {
+            body.innerHTML = '<div class="text-center py-4 text-danger">' + ctEsc(error.message || 'Lỗi kết nối, vui lòng thử lại.') + '</div>';
         });
 }
 </script>

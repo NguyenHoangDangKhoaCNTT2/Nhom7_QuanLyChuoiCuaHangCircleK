@@ -20,6 +20,19 @@ try {
     die("Lỗi kết nối CSDL: " . $e->getMessage());
 }
 
+if (empty($_SESSION['user_id'])) {
+    header('Location: ' . url('modules/tai_khoan_nhan_su/dang_nhap_phan_quyen/dang_nhap.php'));
+    exit;
+}
+$stmtCurrentRole = $pdo->prepare("SELECT phanquyen_id FROM nguoidung WHERE id = ? AND trang_thai = 1 LIMIT 1");
+$stmtCurrentRole->execute([(int)$_SESSION['user_id']]);
+$currentRoleId = $stmtCurrentRole->fetchColumn();
+if ($currentRoleId === false) {
+    http_response_code(403);
+    exit('Tài khoản không hợp lệ hoặc đã bị khóa.');
+}
+$canCancelInvoices = in_array((int)$currentRoleId, [1, 2, 3], true);
+
 try {
     $tenKhachColumn = $pdo->query("SHOW COLUMNS FROM hoadon LIKE 'ten_khach_nhap'")->fetch();
     if (!$tenKhachColumn) {
@@ -36,6 +49,11 @@ try { $pdo->exec("ALTER TABLE khuyenmai ADD COLUMN so_luong_da_dung INT DEFAULT 
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'cancel_payment_order') {
     header('Content-Type: application/json; charset=utf-8');
+    if (!$canCancelInvoices) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Nhân viên bán hàng không có quyền hủy đơn. Vui lòng liên hệ quản lý.'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
     try {
         $hoadon_id = (int)($_POST['hoadon_id'] ?? 0);
         $sessionOrderId = (int)($_SESSION['ck_pos_active_order_id'] ?? 0);
@@ -118,9 +136,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmtInfo->execute([$hoadon_id]);
         $hdInfo = $stmtInfo->fetch();
 
+        $pointsEarned = 0;
+        $pointsTotal = null;
+        $memberTier = null;
         if ($hdInfo && !empty($hdInfo['khachhang_id'])) {
-            $pdo->prepare("UPDATE khachhang SET diem_tich_luy = diem_tich_luy + ? WHERE id = ?")
-                ->execute([(int)floor($so_tien / 1000), $hdInfo['khachhang_id']]);
+            $memberId = (int)$hdInfo['khachhang_id'];
+            $stmtMember = $pdo->prepare("SELECT diem_tich_luy FROM khachhang WHERE id = ? FOR UPDATE");
+            $stmtMember->execute([$memberId]);
+            $oldPoints = $stmtMember->fetchColumn();
+            if ($oldPoints !== false) {
+                $pointsEarned = (int)floor(max(0, $so_tien) / 1000);
+                $pointsTotal = (int)$oldPoints + $pointsEarned;
+                $stmtTier = $pdo->prepare("SELECT id, hang_the FROM thetichdiem WHERE diem_toi_thieu <= ? ORDER BY diem_toi_thieu DESC, id DESC LIMIT 1");
+                $stmtTier->execute([$pointsTotal]);
+                $tierRow = $stmtTier->fetch();
+                if ($tierRow) {
+                    $pdo->prepare("UPDATE khachhang SET diem_tich_luy = ?, thetichdiem_id = ? WHERE id = ?")
+                        ->execute([$pointsTotal, (int)$tierRow['id'], $memberId]);
+                    $memberTier = (string)$tierRow['hang_the'];
+                } else {
+                    $pdo->prepare("UPDATE khachhang SET diem_tich_luy = ? WHERE id = ?")
+                        ->execute([$pointsTotal, $memberId]);
+                }
+            }
         }
         if ($hdInfo && !empty($hdInfo['khuyenmai_id'])) {
             try {
@@ -134,7 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         $pdo->commit();
         unset($_SESSION['ck_pos_active_order_id']);
-        echo json_encode(['success' => true, 'message' => 'Thanh toán thành công!']);
+        echo json_encode(['success' => true, 'message' => 'Thanh toán thành công!', 'points_earned' => $pointsEarned, 'points_total' => $pointsTotal, 'member_tier' => $memberTier], JSON_UNESCAPED_UNICODE);
         exit;
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -492,14 +530,17 @@ require ROOT_PATH . '/includes/header.php';
                 <a href="../man_hinh_ban_hang/index.php" class="btn-ck btn-ck-soft text-center text-decoration-none flex-grow-1">
                     <i class="fa-solid fa-arrow-left me-1"></i>Quay lại giỏ hàng
                 </a>
+<?php if ($canCancelInvoices): ?>
                 <button type="button" class="btn-ck btn-ck-soft flex-grow-1" id="btnCancelOrder" onclick="showCancelOrderDialog()" style="color: #dc2626; border: 1px solid #fecaca; background: #fff7f7;">
                     <i class="fa-solid fa-trash-can me-1"></i>Hủy đơn hàng
                 </button>
+<?php endif; ?>
             </div>
         </div>
     </div>
 </div>
 
+<?php if ($canCancelInvoices): ?>
 <dialog class="pay-cancel-dialog" id="payCancelDialog" aria-labelledby="payCancelTitle" aria-describedby="payCancelMessage">
     <div class="pay-cancel-inner">
         <button type="button" class="pay-cancel-close" onclick="closeCancelOrderDialog()" aria-label="Đóng"><i class="fa-solid fa-xmark"></i></button>
@@ -512,6 +553,7 @@ require ROOT_PATH . '/includes/header.php';
         </div>
     </div>
 </dialog>
+<?php endif; ?>
 
 <div class="modal fade" id="modalPaymentSuccess" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered">
@@ -612,6 +654,7 @@ require ROOT_PATH . '/includes/header.php';
                         </div>
                     </div>
 
+                    <div id="receiptMemberPoints" style="display:none;" class="text-success small fw-semibold mb-2"></div>
                     <div class="dashed-line"></div>
 
                     <div class="text-center mt-3">
@@ -781,7 +824,7 @@ require ROOT_PATH . '/includes/header.php';
         const btn = document.getElementById('btnConfirmPay');
         const cancelBtn = document.getElementById('btnCancelOrder');
         btn.disabled = true;
-        cancelBtn.disabled = true;
+        if (cancelBtn) cancelBtn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Đang ghi nhận...';
 
         const fd = new FormData();
@@ -799,7 +842,7 @@ require ROOT_PATH . '/includes/header.php';
         .then(res => res.json())
         .then(data => {
             btn.disabled = false;
-            cancelBtn.disabled = false;
+            if (cancelBtn) cancelBtn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-circle-check me-2"></i>Xác nhận thanh toán';
             if (data.success) {
                 localStorage.removeItem('ck_pos_cart');
@@ -809,6 +852,13 @@ require ROOT_PATH . '/includes/header.php';
                 localStorage.removeItem('ck_pos_pending_order');
                 localStorage.setItem('ck_pos_cart_cleared', String(Date.now()));
                 document.getElementById('txtConfirmedMethod').textContent = selectedMethod;
+                const pointRow = document.getElementById('receiptMemberPoints');
+                if (data.points_total !== null && data.points_total !== undefined) {
+                    pointRow.style.display = 'block';
+                    pointRow.textContent = 'Điểm thành viên: +' + Number(data.points_earned || 0).toLocaleString('vi-VN') + ' | Tổng: ' + Number(data.points_total).toLocaleString('vi-VN') + ' điểm | Hạng: ' + (data.member_tier || 'Bạc');
+                } else {
+                    pointRow.style.display = 'none';
+                }
                 const rcpCashBox = document.getElementById('rcpCashDetails');
                 if (selectedMethod === 'Tiền mặt') {
                     rcpCashBox.style.display = 'block';
@@ -824,7 +874,7 @@ require ROOT_PATH . '/includes/header.php';
         })
         .catch(err => {
             btn.disabled = false;
-            cancelBtn.disabled = false;
+            if (cancelBtn) cancelBtn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-circle-check me-2"></i>Xác nhận thanh toán';
             alert('Lỗi kết nối máy chủ: ' + err);
         });
