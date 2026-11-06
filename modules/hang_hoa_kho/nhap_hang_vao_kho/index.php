@@ -147,6 +147,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             throw new Exception('Vui lòng chọn đầy đủ thông tin Cửa hàng, Nhà cung cấp, Người nhập và ít nhất 1 sản phẩm!');
         }
 
+        $danhSachGop = [];
+        $danhSachChiTiet = [];
+        for ($i = 0; $i < count($sp_ids); $i++) {
+            $sp_id = (int)$sp_ids[$i];
+            $sl    = (int)($sls[$i] ?? 0);
+            $gia   = (float)($gias[$i] ?? 0);
+
+            if ($sp_id > 0 && $sl > 0) {
+                if ($gia < 0) {
+                    throw new Exception("Đơn giá nhập không được là số âm (Sản phẩm ID: $sp_id)");
+                }
+
+                $danhSachChiTiet[] = ['sp_id' => $sp_id, 'sl' => $sl, 'gia' => $gia];
+                if (!isset($danhSachGop[$sp_id])) {
+                    $danhSachGop[$sp_id] = 0;
+                }
+                $danhSachGop[$sp_id] += $sl;
+            }
+        }
+
+        if (empty($danhSachChiTiet)) {
+            throw new Exception('Vui lòng nhập số lượng lớn hơn 0 cho ít nhất 1 sản phẩm!');
+        }
+
+        $spKiemTra = array_keys($danhSachGop);
+        $inSp = implode(',', array_fill(0, count($spKiemTra), '?'));
+        $stmtKiemTra = $pdo->prepare("SELECT COUNT(*) FROM sanpham WHERE id IN ($inSp) AND trang_thai = 1");
+        $stmtKiemTra->execute($spKiemTra);
+        if ((int)$stmtKiemTra->fetchColumn() !== count($spKiemTra)) {
+            throw new Exception('Chỉ được nhập hàng cho sản phẩm đang bán!');
+        }
+
         $pdo->beginTransaction();
 
         $stmtPn = $pdo->prepare("INSERT INTO phieunhap (cuahang_id, nhacungcap_id, ngay_nhap, tong_tien, nguoi_nhap) VALUES (?, ?, ?, 0, ?)");
@@ -156,36 +188,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmtCt = $pdo->prepare("INSERT INTO chitietphieunhap (phieunhap_id, sanpham_id, so_luong, gia_nhap) VALUES (?, ?, ?, ?)");
         $stmtTk = $pdo->prepare("UPDATE tonkho SET so_luong = so_luong + ? WHERE sanpham_id = ? AND cuahang_id = ?");
 
-        $danhSachGop = [];
-        for ($i = 0; $i < count($sp_ids); $i++) {
-            $sp_id = (int)$sp_ids[$i];
-            $sl    = (int)$sls[$i];
-            $gia   = (float)$gias[$i];
-
-            if ($sp_id > 0 && $sl > 0) {
-                if ($gia < 0) {
-                    throw new Exception("Đơn giá nhập không được là số âm (Sản phẩm ID: $sp_id)");
-                }
-
-                if (!isset($danhSachGop[$sp_id])) {
-                    $danhSachGop[$sp_id] = [
-                        'sl' => 0, 
-                        'gia' => $gia
-                    ];
-                }
-                $danhSachGop[$sp_id]['sl'] += $sl;
-            }
-        }
-
         $tong_tien_thuc_te = 0;
 
-        foreach ($danhSachGop as $sp_id => $data) {
-            $sl = $data['sl'];
-            $gia = $data['gia'];
+        foreach ($danhSachChiTiet as $dong) {
+            $tong_tien_thuc_te += ($dong['sl'] * $dong['gia']);
+            $stmtCt->execute([$pnId, $dong['sp_id'], $dong['sl'], $dong['gia']]);
+        }
 
-            $tong_tien_thuc_te += ($sl * $gia);
-
-            $stmtCt->execute([$pnId, $sp_id, $sl, $gia]);
+        foreach ($danhSachGop as $sp_id => $sl) {
             $stmtTk->execute([$sl, $sp_id, $cuahang_id]);
 
             if ($stmtTk->rowCount() === 0) {

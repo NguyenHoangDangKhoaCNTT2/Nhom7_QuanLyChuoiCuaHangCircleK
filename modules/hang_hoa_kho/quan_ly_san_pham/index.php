@@ -23,11 +23,11 @@ try {
          </div>');
 }
 
-// Tự động đảm bảo có dữ liệu mẫu ngừng bán để kiểm thử chức năng
 try {
-    $checkNgungBan = $pdo->query("SELECT COUNT(*) FROM sanpham WHERE trang_thai = 0")->fetchColumn();
-    if ($checkNgungBan == 0) {
-        $pdo->exec("UPDATE sanpham SET trang_thai = 0 WHERE ma_san_pham IN ('SP087', 'SP088')");
+    $colTk = $pdo->query("SHOW COLUMNS FROM tonkho LIKE 'trang_thai'")->fetch();
+    if (!$colTk) {
+        $pdo->exec("ALTER TABLE tonkho ADD COLUMN trang_thai TINYINT(1) NOT NULL DEFAULT 1 AFTER so_luong");
+        $pdo->exec("UPDATE tonkho tk JOIN sanpham sp ON sp.id = tk.sanpham_id SET tk.trang_thai = sp.trang_thai");
     }
 } catch (Exception $e) {}
 
@@ -130,6 +130,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $coQuyenThaoTac) {
                 throw new Exception('Giá nhập và giá bán không được phép là số âm!');
             }
 
+            if ($gia_ban < $gia_nhap) {
+                throw new Exception('Giá bán không được thấp hơn giá nhập!');
+            }
+
             $stmtCheck = $pdo->prepare("SELECT id FROM sanpham WHERE ma_san_pham = ? AND id != ?");
             $stmtCheck->execute([$ma_san_pham, $id]);
             if ($stmtCheck->fetch()) {
@@ -156,10 +160,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $coQuyenThaoTac) {
             if ($id > 0) {
                 $stmtUpdate = $pdo->prepare("
                     UPDATE sanpham 
-                    SET danhmuc_id = ?, ma_san_pham = ?, ten_san_pham = ?, gia_nhap = ?, gia_ban = ?, hinh_anh = ?, trang_thai = ?
+                    SET danhmuc_id = ?, ma_san_pham = ?, ten_san_pham = ?, gia_nhap = ?, gia_ban = ?, hinh_anh = ?
                     WHERE id = ?
                 ");
-                $stmtUpdate->execute([$danhmuc_id, $ma_san_pham, $ten_san_pham, $gia_nhap, $gia_ban, $hinh_anh, $trang_thai, $id]);
+                $stmtUpdate->execute([$danhmuc_id, $ma_san_pham, $ten_san_pham, $gia_nhap, $gia_ban, $hinh_anh, $id]);
+                $scopeCh = $biKhoaChiNhanh ? $choCuaHangIdSP : (int)($_POST['pham_vi_cuahang'] ?? 0);
+                if ($scopeCh > 0) {
+                    $pdo->prepare("INSERT INTO tonkho (sanpham_id, cuahang_id, so_luong, trang_thai) VALUES (?, ?, 0, ?) ON DUPLICATE KEY UPDATE trang_thai = VALUES(trang_thai)")->execute([$id, $scopeCh, $trang_thai]);
+                } else {
+                    $pdo->prepare("UPDATE sanpham SET trang_thai = ? WHERE id = ?")->execute([$trang_thai, $id]);
+                    $pdo->prepare("UPDATE tonkho SET trang_thai = ? WHERE sanpham_id = ?")->execute([$trang_thai, $id]);
+                }
                 $alertMsg = "Đã cập nhật sản phẩm <b>$ma_san_pham - " . htmlspecialchars($ten_san_pham) . "</b> thành công!";
             } else {
                 $pdo->beginTransaction();
@@ -171,9 +182,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $coQuyenThaoTac) {
                 $newSpId = (int)$pdo->lastInsertId();
 
                 $stores = $pdo->query("SELECT id FROM cuahang")->fetchAll();
-                $stmtTk = $pdo->prepare("INSERT IGNORE INTO tonkho (sanpham_id, cuahang_id, so_luong) VALUES (?, ?, 0)");
+                $stmtTk = $pdo->prepare("INSERT IGNORE INTO tonkho (sanpham_id, cuahang_id, so_luong, trang_thai) VALUES (?, ?, 0, ?)");
                 foreach ($stores as $st) {
-                    $stmtTk->execute([$newSpId, $st['id']]);
+                    $stmtTk->execute([$newSpId, $st['id'], $trang_thai]);
                 }
                 $pdo->commit();
                 $alertMsg = "Đã thêm mới sản phẩm <b>$ma_san_pham - " . htmlspecialchars($ten_san_pham) . "</b> thành công!";
@@ -194,8 +205,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $coQuyenThaoTac) {
                 $usedCount = (int)$checkUsed->fetchColumn();
 
                 if ($usedCount > 0) {
-                    $pdo->prepare("UPDATE sanpham SET trang_thai = 0 WHERE id = ?")->execute([$delId]);
-                    $alertMsg  = "Sản phẩm này đã có lịch sử giao dịch nên được chuyển sang trạng thái <b>Ngừng bán</b> để bảo toàn dữ liệu!";
+                    $scopeCh = $biKhoaChiNhanh ? $choCuaHangIdSP : (int)($_POST['pham_vi_cuahang'] ?? 0);
+                    if ($scopeCh > 0) {
+                        $pdo->prepare("INSERT INTO tonkho (sanpham_id, cuahang_id, so_luong, trang_thai) VALUES (?, ?, 0, 0) ON DUPLICATE KEY UPDATE trang_thai = 0")->execute([$delId, $scopeCh]);
+                        $alertMsg  = "Sản phẩm này đã có lịch sử giao dịch nên chỉ ngừng bán tại chi nhánh đang xem, các chi nhánh khác vẫn bán bình thường!";
+                    } else {
+                        $pdo->prepare("UPDATE sanpham SET trang_thai = 0 WHERE id = ?")->execute([$delId]);
+                        $pdo->prepare("UPDATE tonkho SET trang_thai = 0 WHERE sanpham_id = ?")->execute([$delId]);
+                        $alertMsg  = "Sản phẩm này đã có lịch sử giao dịch nên được chuyển sang trạng thái <b>Ngừng bán</b> trên toàn chuỗi để bảo toàn dữ liệu!";
+                    }
                     $alertType = 'warning';
                 } else {
                     $pdo->beginTransaction();
@@ -252,8 +270,14 @@ $sql = "
     SELECT 
         sp.id, sp.danhmuc_id, sp.ma_san_pham, sp.ten_san_pham, sp.gia_nhap, sp.gia_ban, sp.hinh_anh, sp.trang_thai, dm.ten_danh_muc,
         COALESCE(SUM(tk.so_luong), 0) AS tong_ton_kho,
-        COALESCE(MIN(tk.so_luong), 0) AS min_ton_kho,
-        COUNT(CASE WHEN tk.so_luong <= 20 THEN 1 END) AS so_ch_sap_het
+        COALESCE(SUM(CASE WHEN tk.trang_thai = 1 THEN tk.so_luong ELSE 0 END), 0) AS ton_kho_ban,
+        COALESCE(MIN(CASE WHEN tk.trang_thai = 1 THEN tk.so_luong END), 0) AS min_ton_kho,
+        COUNT(CASE WHEN tk.trang_thai = 1 AND tk.so_luong <= 20 THEN 1 END) AS so_ch_sap_het,
+        GROUP_CONCAT(CASE WHEN tk.trang_thai = 1 AND tk.so_luong <= 20 THEN CONCAT('CN ', tk.cuahang_id) END ORDER BY tk.cuahang_id SEPARATOR ', ') AS ds_ch_sap_het,
+        COUNT(CASE WHEN tk.trang_thai = 0 THEN 1 END) AS so_ch_ngung_ban,
+        GROUP_CONCAT(CASE WHEN tk.trang_thai = 0 THEN CONCAT('CN ', tk.cuahang_id) END ORDER BY tk.cuahang_id SEPARATOR ', ') AS ds_ch_ngung_ban,
+        GROUP_CONCAT(CASE WHEN tk.trang_thai = 0 THEN CONCAT(tk.cuahang_id, ':', tk.so_luong) END ORDER BY tk.cuahang_id SEPARATOR ',') AS ds_ch_ngung_ban_ct,
+        COALESCE(MAX(tk.trang_thai), sp.trang_thai) AS trang_thai_hien_thi
     FROM sanpham sp
     LEFT JOIN danhmuc dm ON sp.danhmuc_id = dm.id
     LEFT JOIN tonkho tk ON sp.id = tk.sanpham_id " . ($filterCh > 0 ? "AND tk.cuahang_id = :cuahang_id" : "") . "
@@ -266,30 +290,28 @@ if ($filterCh > 0) { $params[':cuahang_id'] = $filterCh; }
 if ($search !== '') {
     $searchLower = mb_strtolower($search, 'UTF-8');
     $sql .= " AND (LOWER(sp.ma_san_pham) LIKE :search OR LOWER(sp.ten_san_pham) COLLATE utf8mb4_bin LIKE :search)";
-    if ($searchLower === 'mì' || $searchLower === 'mi') {
-        $sql .= " AND LOWER(sp.ten_san_pham) NOT LIKE '%bánh mì%'";
-    }
     $params[':search'] = "%$searchLower%";
 }
 if ($filterDm > 0) {
     $sql .= " AND sp.danhmuc_id = :danhmuc_id";
     $params[':danhmuc_id'] = $filterDm;
 }
-if ($filterSt === 'ngung_ban') {
-    $sql .= " AND sp.trang_thai = 0";
-} elseif ($filterSt === 'dang_ban') {
-    $sql .= " AND sp.trang_thai = 1";
-}
-
 $sql .= " GROUP BY sp.id, sp.danhmuc_id, sp.ma_san_pham, sp.ten_san_pham, sp.gia_nhap, sp.gia_ban, sp.hinh_anh, sp.trang_thai, dm.ten_danh_muc";
 
-// Xử lý bộ lọc Sắp hết chuẩn cho cả 1 Cửa hàng và Toàn chuỗi
-if ($filterSt === 'sap_het') {
+$havingParts = [];
+if ($filterSt === 'ngung_ban') {
+    $havingParts[] = "(so_ch_ngung_ban > 0 OR trang_thai_hien_thi = 0)";
+} elseif ($filterSt === 'dang_ban') {
+    $havingParts[] = "trang_thai_hien_thi = 1";
+} elseif ($filterSt === 'sap_het') {
     if ($filterCh > 0) {
-        $sql .= " HAVING sp.trang_thai = 1 AND tong_ton_kho <= 20";
+        $havingParts[] = "trang_thai_hien_thi = 1 AND tong_ton_kho <= 20";
     } else {
-        $sql .= " HAVING sp.trang_thai = 1 AND (min_ton_kho <= 20 OR tong_ton_kho <= 240)";
+        $havingParts[] = "trang_thai_hien_thi = 1 AND min_ton_kho <= 20";
     }
+}
+if (!empty($havingParts)) {
+    $sql .= " HAVING " . implode(" AND ", $havingParts);
 }
 $sql .= " ORDER BY sp.id ASC";
 
@@ -424,13 +446,24 @@ require ROOT_PATH . '/includes/header.php';
                     </tr>
                 <?php else: ?>
                     <?php foreach ($dsSanPham as $sp): 
-                        $tonKho    = (int)$sp['tong_ton_kho'];
-                        $trangThai = (int)$sp['trang_thai'];
+                        $tonKho    = $filterCh > 0 ? (int)$sp['tong_ton_kho'] : (int)$sp['ton_kho_ban'];
+                        $trangThai = (int)$sp['trang_thai_hien_thi'];
+                        if ($filterSt === 'ngung_ban' && (int)$sp['so_ch_ngung_ban'] > 0) {
+                            $trangThai = 0;
+                        }
+                        $nhanDangBan = 'Đang bán';
+                        if ($filterCh == 0 && $trangThai === 1 && (int)$sp['so_ch_ngung_ban'] > 0) {
+                            $nhanDangBan = 'Đang bán (' . (count($dsCuaHang) - (int)$sp['so_ch_ngung_ban']) . '/' . count($dsCuaHang) . ' CH)';
+                        }
+                        $soChNgung = (int)$sp['so_ch_ngung_ban'];
+                        $hienNhanNgung = ($filterCh == 0 && $soChNgung > 0 && ($filterSt === '' || $filterSt === 'ngung_ban'));
+                        $dsNgungCt = htmlspecialchars($sp['ds_ch_ngung_ban_ct'] ?? '', ENT_QUOTES, 'UTF-8');
+                        $tenSpAttr = htmlspecialchars($sp['ten_san_pham'], ENT_QUOTES, 'UTF-8');
                         $imgUrl    = getProductImageUrl($sp['hinh_anh'], $sp['ma_san_pham'], $imageDirPhysical, $projectBaseUrl);
                         
                         // Đánh giá trạng thái Sắp hết chuẩn xác
                         $isSapHet = false;
-                        if ($trangThai === 1) {
+                        if ($trangThai === 1 && ($filterSt === 'sap_het' || $filterSt === '')) {
                             if ($filterCh > 0) {
                                 $isSapHet = ($tonKho <= 20);
                             } else {
@@ -464,16 +497,23 @@ require ROOT_PATH . '/includes/header.php';
                         <td class="text-end text-nowrap align-middle">
                             <span class="num-font fw-bold text-dark fs-6"><?= number_format($tonKho, 0, ',', '.') ?></span>
                             <?php if ($filterCh == 0 && $isSapHet && (int)$sp['so_ch_sap_het'] > 0): ?>
-                                <div class="small text-danger fw-normal" style="font-size: 0.75rem;">(<?= $sp['so_ch_sap_het'] ?> CH ≤ 20)</div>
+                                <div class="small text-danger fw-normal" style="font-size: 0.75rem;">(<?= $sp['so_ch_sap_het'] ?> CH ≤ 20: <?= htmlspecialchars($sp['ds_ch_sap_het'] ?? '') ?>)</div>
                             <?php endif; ?>
                         </td>
                         <td class="text-center text-nowrap align-middle">
                             <?php if ($trangThai === 0): ?>
-                                <span class="st-badge st-cancel"><i class="fa-solid fa-ban"></i> Ngừng bán</span>
-                            <?php elseif ($isSapHet): ?>
+                                <?php if ($hienNhanNgung): ?>
+                                    <span class="st-badge st-cancel" role="button" tabindex="0" style="cursor:pointer;" title="Bấm để xem chi tiết chi nhánh" onclick="xemChiTietNgungBan(this)" data-ma="<?= htmlspecialchars($sp['ma_san_pham']) ?>" data-ten="<?= $tenSpAttr ?>" data-ds="<?= $dsNgungCt ?>"><i class="fa-solid fa-ban"></i> Ngừng bán: <?= $soChNgung ?> CH</span>
+                                <?php else: ?>
+                                    <span class="st-badge st-cancel"><i class="fa-solid fa-ban"></i> Ngừng bán</span>
+                                <?php endif; ?>
+                            <?php elseif ($isSapHet && $filterSt === 'sap_het'): ?>
                                 <span class="st-badge st-wait"><i class="fa-solid fa-circle-exclamation"></i> Sắp hết</span>
                             <?php else: ?>
-                                <span class="st-badge st-ok"><i class="fa-solid fa-circle-check"></i> Đang bán</span>
+                                <span class="st-badge st-ok"><i class="fa-solid fa-circle-check"></i> <?= $nhanDangBan ?></span>
+                                <?php if ($hienNhanNgung): ?>
+                                    <br><span class="st-badge st-cancel mt-1" role="button" tabindex="0" style="cursor:pointer;" title="Bấm để xem chi tiết chi nhánh" onclick="xemChiTietNgungBan(this)" data-ma="<?= htmlspecialchars($sp['ma_san_pham']) ?>" data-ten="<?= $tenSpAttr ?>" data-ds="<?= $dsNgungCt ?>"><i class="fa-solid fa-ban"></i> Ngừng bán: <?= $soChNgung ?> CH</span>
+                                <?php endif; ?>
                             <?php endif; ?>
                         </td>
                         <td class="text-end text-nowrap align-middle">
@@ -487,7 +527,7 @@ require ROOT_PATH . '/includes/header.php';
                                         "danhmuc_id"   => $sp["danhmuc_id"],
                                         "gia_nhap"     => (float)$sp["gia_nhap"],
                                         "gia_ban"      => (float)$sp["gia_ban"],
-                                        "trang_thai"   => (int)$sp["trang_thai"],
+                                        "trang_thai"   => (int)$sp["trang_thai_hien_thi"],
                                         "hinh_anh"     => $sp["hinh_anh"] ?? "",
                                         "img_url"      => $imgUrl
                                     ], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
@@ -552,11 +592,27 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 </div>
 
+<div class="modal fade" id="modalNgungBan" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold" id="modalNgungBanTitle">Chi nhánh ngừng bán</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+            </div>
+            <div class="modal-body" id="modalNgungBanBody"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn-ck btn-ck-soft" data-bs-dismiss="modal">Đóng</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <?php if ($coQuyenThaoTac): ?>
 <div class="modal fade" id="modalSanPham" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <form method="POST" action="" enctype="multipart/form-data" class="modal-content">
             <input type="hidden" name="action" value="save">
+            <input type="hidden" name="pham_vi_cuahang" value="<?= (int)$filterCh ?>">
             <input type="hidden" name="id" id="spId" value="<?= htmlspecialchars($savedData['id'] ?? 0) ?>">
             <input type="hidden" name="old_image" id="spOldImage" value="">
 
@@ -617,6 +673,7 @@ require ROOT_PATH . '/includes/header.php';
 
 <form method="POST" action="" id="deleteSpForm" class="d-none">
     <input type="hidden" name="action" value="delete">
+    <input type="hidden" name="pham_vi_cuahang" value="<?= (int)$filterCh ?>">
     <input type="hidden" name="delete_id" id="deleteSpId" value="0">
 </form>
 <?php endif; ?>
@@ -691,6 +748,31 @@ function confirmDelete(id, name) {
         document.getElementById('deleteSpId').value = id;
         document.getElementById('deleteSpForm').submit();
     }
+}
+
+const TEN_CUA_HANG = <?= json_encode(array_column($dsCuaHang, 'ten_cua_hang', 'id'), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
+function escHtml(v) {
+    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function xemChiTietNgungBan(el) {
+    const ds = (el.dataset.ds || '').split(',').filter(function(x) { return x !== ''; });
+    let rows = '';
+    ds.forEach(function(item) {
+        const parts = item.split(':');
+        const id = parts[0];
+        const sl = parts.length > 1 ? parts[1] : 0;
+        const ten = (TEN_CUA_HANG && TEN_CUA_HANG[id]) ? TEN_CUA_HANG[id] : ('Chi nhánh ' + id);
+        rows += '<tr><td class="text-nowrap fw-bold">CN ' + escHtml(id) + '</td><td>' + escHtml(ten) + '</td><td class="text-end text-nowrap">' + Number(sl).toLocaleString('vi-VN') + '</td></tr>';
+    });
+    if (rows === '') {
+        rows = '<tr><td colspan="3" class="text-center text-muted">Không có chi nhánh nào ngừng bán.</td></tr>';
+    }
+    document.getElementById('modalNgungBanTitle').innerText = 'Chi nhánh ngừng bán — ' + el.dataset.ma + ' · ' + el.dataset.ten;
+    document.getElementById('modalNgungBanBody').innerHTML = '<p class="text-muted mb-2">Tổng: <strong class="text-dark">' + ds.length + ' chi nhánh</strong> đang ngừng bán sản phẩm này.</p>' +
+        '<div class="table-responsive"><table class="table table-bordered align-middle mb-0"><thead><tr><th>Chi nhánh</th><th>Tên cửa hàng</th><th class="text-end">Tồn kho</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalNgungBan')).show();
 }
 
 function viewLargeImage(url, title) {
