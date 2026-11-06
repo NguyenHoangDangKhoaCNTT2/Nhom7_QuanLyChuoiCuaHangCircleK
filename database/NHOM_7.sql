@@ -2091,3 +2091,49 @@ INSERT INTO `thanhtoan` (`hoadon_id`, `phuong_thuc`, `so_tien_thanh_toan`) VALUE
 UPDATE nhanvien
 SET ngay_vao_lam = DATE_ADD('2026-01-01', INTERVAL FLOOR(RAND() * (DATEDIFF('2026-09-30','2026-01-01') + 1)) DAY)
 WHERE id > 4;
+
+UPDATE chitiethoadon ct JOIN sanpham sp ON sp.id = ct.sanpham_id
+SET ct.don_gia = sp.gia_ban, ct.thanh_tien = ct.so_luong * sp.gia_ban;
+
+UPDATE hoadon h
+JOIN (SELECT hoadon_id, SUM(thanh_tien) AS tong FROM chitiethoadon GROUP BY hoadon_id) c ON c.hoadon_id = h.id
+SET h.tong_tien = c.tong, h.tien_giam_gia = 0, h.khach_phai_tra = ROUND(c.tong * 1.08);
+
+UPDATE hoadon h
+SET h.ngay_tao = TIMESTAMP(
+        DATE(NOW()) - INTERVAL ELT(((h.id - 1) MOD 5) + 1, 0, 1, 2, 4, 6) DAY,
+        IF(((h.id - 1) MOD 5) = 0, MAKETIME(6 + (h.id MOD 2), (h.id * 17) MOD 60, 0),
+                                   MAKETIME(8 + ((h.id * 3) MOD 12), (h.id * 17) MOD 60, 0)));
+
+UPDATE thanhtoan t JOIN hoadon h ON h.id = t.hoadon_id
+SET t.so_tien_thanh_toan = h.khach_phai_tra,
+    t.thoi_gian_thanh_toan = h.ngay_tao + INTERVAL 2 MINUTE;
+
+UPDATE khachhang k
+SET k.ngay_dang_ky = TIMESTAMP(DATE(NOW()) - INTERVAL (k.id MOD 7) DAY,
+                               IF((k.id MOD 7) = 0, MAKETIME(6 + (k.id MOD 2), (k.id * 13) MOD 60, 0),
+                                                    MAKETIME(8 + (k.id MOD 10), (k.id * 13) MOD 60, 0)));
+
+UPDATE chitietphieunhap ct JOIN sanpham sp ON sp.id = ct.sanpham_id SET ct.gia_nhap = sp.gia_nhap;
+UPDATE phieunhap p
+JOIN (SELECT phieunhap_id, SUM(so_luong * gia_nhap) AS tong FROM chitietphieunhap GROUP BY phieunhap_id) c ON c.phieunhap_id = p.id
+SET p.tong_tien = c.tong;
+
+UPDATE tonkho SET so_luong = 3 + (id MOD 6) WHERE id MOD 97 = 0;
+
+UPDATE khachhang SET thetichdiem_id = (SELECT id FROM thetichdiem ORDER BY diem_toi_thieu ASC, id ASC LIMIT 1) WHERE thetichdiem_id IS NULL;
+
+DROP EVENT IF EXISTS ev_demo_hoadon;
+DROP EVENT IF EXISTS ev_demo_thanhtoan;
+DROP EVENT IF EXISTS ev_demo_khachhang;
+
+CREATE EVENT ev_demo_hoadon ON SCHEDULE EVERY 1 HOUR STARTS CURRENT_TIMESTAMP DO
+UPDATE hoadon SET ngay_tao = ngay_tao + INTERVAL (SELECT d FROM (SELECT GREATEST(0, DATEDIFF(CURDATE(), DATE(MAX(ngay_tao)))) AS d FROM hoadon WHERE id <= 60) x) DAY WHERE id <= 60;
+
+CREATE EVENT ev_demo_thanhtoan ON SCHEDULE EVERY 1 HOUR STARTS CURRENT_TIMESTAMP DO
+UPDATE thanhtoan t JOIN hoadon h ON h.id = t.hoadon_id SET t.thoi_gian_thanh_toan = h.ngay_tao + INTERVAL 2 MINUTE WHERE h.id <= 60;
+
+CREATE EVENT ev_demo_khachhang ON SCHEDULE EVERY 1 HOUR STARTS CURRENT_TIMESTAMP DO
+UPDATE khachhang SET ngay_dang_ky = ngay_dang_ky + INTERVAL (SELECT d FROM (SELECT GREATEST(0, DATEDIFF(CURDATE(), DATE(MAX(ngay_dang_ky)))) AS d FROM khachhang WHERE id <= 68) x) DAY WHERE id <= 68;
+
+SET GLOBAL event_scheduler = ON;

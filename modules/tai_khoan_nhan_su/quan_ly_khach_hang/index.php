@@ -92,6 +92,7 @@ $dsKhachHang = $stmt->fetchAll();
 
 $dsHangThe = $pdo->query("SELECT MIN(id) AS id, hang_the FROM thetichdiem GROUP BY hang_the ORDER BY MIN(id) ASC")->fetchAll();
 $dsCuaHang = $pdo->query("SELECT id, ten_cua_hang FROM cuahang WHERE trang_thai = 1 ORDER BY id ASC")->fetchAll();
+$maKhTiepTheo = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) + 1 FROM khachhang")->fetchColumn();
 
 $pageTitle  = 'Quản lý Khách hàng';
 $activeMenu = 'khachhang';
