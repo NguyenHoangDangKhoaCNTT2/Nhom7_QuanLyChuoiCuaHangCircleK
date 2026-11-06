@@ -1,6 +1,6 @@
 # Hệ thống quản lý chuỗi cửa hàng tiện lợi Circle K
 
-Website quản lý chuỗi cửa hàng tiện lợi Circle K viết bằng PHP thuần, chạy trên XAMPP. Hệ thống gồm bốn phần: đăng nhập – phân quyền, hàng hóa và kho, bán hàng (POS), thống kê và báo cáo. Đây là bài tập nhóm môn Phát triển phần mềm mã nguồn mở, Trường Đại học Nha Trang.
+Website quản lý chuỗi cửa hàng tiện lợi Circle K viết bằng PHP thuần, chạy trên XAMPP. Hệ thống gồm bốn phần: đăng nhập – phân quyền, hàng hóa và kho, bán hàng (POS), thống kê và báo cáo.
 
 ## Thành viên thực hiện
 
