@@ -19,6 +19,15 @@ try {
     die('<div style="padding:20px;color:#e11d48;font-family:sans-serif;"><h3>Không thể kết nối Database!</h3></div>');
 }
 
+// Đảm bảo bảng phieudieuchuyen có cột ghi_chu
+try {
+    $pdo->query("SELECT ghi_chu FROM phieudieuchuyen LIMIT 1");
+} catch (Exception $e) {
+    try {
+        $pdo->exec("ALTER TABLE phieudieuchuyen ADD COLUMN ghi_chu TEXT DEFAULT NULL");
+    } catch (Exception $ex) {}
+}
+
 $scriptName = $_SERVER['SCRIPT_NAME'];
 $projectBaseUrl = preg_replace('#/modules/.*$#', '', $scriptName);
 $imageDirPhysical = ROOT_PATH . '/assets/images/';
@@ -102,7 +111,6 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_ctdc') {
     foreach ($details as &$d) {
         $d['ten_san_pham'] = htmlspecialchars($d['ten_san_pham']);
         $d['ma_san_pham']  = htmlspecialchars($d['ma_san_pham']);
-
         $d['img_url'] = getProductImageUrlLocal($d['hinh_anh'], $d['ma_san_pham'], $imageDirPhysical, $projectBaseUrl);
     }
 
@@ -146,8 +154,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         $pdo->beginTransaction();
 
-        $stmtDc = $pdo->prepare("INSERT INTO phieudieuchuyen (tu_cuahang_id, den_cuahang_id, nguoi_chuyen, ngay_chuyen, trang_thai) VALUES (?, ?, ?, ?, 'Hoàn thành')");
-        $stmtDc->execute([$tu_cuahang_id, $den_cuahang_id, $nguoi_chuyen, $ngay_chuyen]);
+        $stmtDc = $pdo->prepare("INSERT INTO phieudieuchuyen (tu_cuahang_id, den_cuahang_id, nguoi_chuyen, ngay_chuyen, ghi_chu, trang_thai) VALUES (?, ?, ?, ?, ?, 'Hoàn thành')");
+        $stmtDc->execute([$tu_cuahang_id, $den_cuahang_id, $nguoi_chuyen, $ngay_chuyen, $ghi_chu]);
         $dcId = $pdo->lastInsertId();
 
         $stmtCt = $pdo->prepare("INSERT INTO chitietdieuchuyen (phieudieuchuyen_id, sanpham_id, so_luong) VALUES (?, ?, ?)");
@@ -228,7 +236,7 @@ $totalPages = ceil($totalRows / $limit);
 
 $sqlHistory = "
     SELECT 
-        dc.id, dc.ngay_chuyen, dc.trang_thai,
+        dc.id, dc.ngay_chuyen, dc.trang_thai, dc.ghi_chu,
         cx.ten_cua_hang AS kho_xuat,
         cn.ten_cua_hang AS kho_nhan,
         nv.ho_ten AS nguoi_chuyen,
@@ -459,7 +467,8 @@ require ROOT_PATH . '/includes/header.php';
                                         "<?= $dcDate ?>", 
                                         <?= json_encode($ls['kho_xuat'], JSON_HEX_APOS | JSON_HEX_QUOT) ?>, 
                                         <?= json_encode($ls['kho_nhan'], JSON_HEX_APOS | JSON_HEX_QUOT) ?>, 
-                                        <?= (int)$ls['tong_so_luong'] ?>
+                                        <?= (int)$ls['tong_so_luong'] ?>,
+                                        <?= json_encode($ls['ghi_chu'] ?? '', JSON_HEX_APOS | JSON_HEX_QUOT) ?>
                                     )'>
                                     <i class="fa-solid fa-eye"></i>
                                 </button>
@@ -524,17 +533,21 @@ require ROOT_PATH . '/includes/header.php';
             <div class="modal-body p-0">
                 <div class="p-3 bg-light border-bottom">
                     <div class="row text-dark">
-                        <div class="col-sm-6 mb-2 mb-sm-0">
+                        <div class="col-sm-6 mb-2">
                             <div class="small text-muted mb-1">Thời gian chuyển:</div>
                             <div class="fw-semibold" id="dtDcDate"></div>
                         </div>
-                        <div class="col-sm-6">
+                        <div class="col-sm-6 mb-2">
                             <div class="small text-muted mb-1">Kho xuất:</div>
                             <div class="fw-semibold" id="dtDcXuat"></div>
                         </div>
-                        <div class="col-12 mt-3">
+                        <div class="col-sm-6 mt-2">
                             <div class="small text-muted mb-1">Kho nhận:</div>
                             <div class="fw-semibold" id="dtDcNhan"></div>
+                        </div>
+                        <div class="col-sm-6 mt-2">
+                            <div class="small text-muted mb-1">Ghi chú điều chuyển:</div>
+                            <div class="fw-semibold" id="dtDcGhiChu"></div>
                         </div>
                     </div>
                 </div>
@@ -781,12 +794,27 @@ if (window.history.replaceState) {
     window.history.replaceState(null, null, window.location.href);
 }
 
-function viewDcDetail(id, code, date, xuat, nhan, total) {
+function viewDcDetail(id, code, date, xuat, nhan, total, ghiChu) {
     document.getElementById('dtDcCode').innerText = code;
     document.getElementById('dtDcDate').innerText = date;
     document.getElementById('dtDcXuat').innerText = xuat;
     document.getElementById('dtDcNhan').innerText = nhan;
     document.getElementById('dtDcTotal').innerText = new Intl.NumberFormat('vi-VN').format(total);
+    
+    // Hiển thị ghi chú điều chuyển
+    const gcEl = document.getElementById('dtDcGhiChu');
+    if (gcEl) {
+        if (ghiChu && ghiChu.trim() !== '') {
+            gcEl.innerText = ghiChu;
+            gcEl.classList.remove('text-muted', 'fst-italic');
+            gcEl.classList.add('text-dark');
+        } else {
+            gcEl.innerText = '(Không có ghi chú)';
+            gcEl.classList.remove('text-dark');
+            gcEl.classList.add('text-muted', 'fst-italic');
+        }
+    }
+    
     document.getElementById('dtDcTbody').innerHTML = '<tr><td colspan="3" class="text-center py-4"><i class="fa-solid fa-spinner fa-spin text-muted me-2"></i> Đang tải dữ liệu...</td></tr>';
 
     const modal = new bootstrap.Modal(document.getElementById('modalDcDetail'));
