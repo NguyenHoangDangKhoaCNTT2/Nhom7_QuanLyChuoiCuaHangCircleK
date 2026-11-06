@@ -143,5 +143,5 @@ Kết nối CSDL đang dùng cấu hình mặc định của XAMPP: máy chủ `
 
 ## 7. Video demo và thư mục Drive
 
-- Video demo: [Xem video demo](https://drive.google.com/file/d/12xwwIO3UEkd_JhxwoaMyoabxgNF2RsjJ/view?usp=sharing)
-- Thư mục Google Drive: [Mở thư mục](https://drive.google.com/drive/folders/1x-I0emLetBgYUKfvGIGgid82Q3UlGvCa?usp=sharing)
+- Video demo: [Demo chức năng](https://drive.google.com/file/d/12xwwIO3UEkd_JhxwoaMyoabxgNF2RsjJ/view?usp=sharing)
+- Thư mục Google Drive: [Bài tập nhóm 7 - môn Phát Triển Mã Nguồn Mở](https://drive.google.com/drive/folders/1x-I0emLetBgYUKfvGIGgid82Q3UlGvCa?usp=sharing)
