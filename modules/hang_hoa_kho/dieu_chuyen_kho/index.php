@@ -1,6 +1,12 @@
 <?php
 require_once dirname(__DIR__, 3) . '/includes/config.php';
 
+$vaiTro = $_SESSION['vai_tro'] ?? null;
+if (!is_array($vaiTro) || !in_array('dieuchuyen', $vaiTro, true)) {
+    header('Location: ' . url('index.php'));
+    exit;
+}
+
 $pageTitle  = 'Điều chuyển kho';
 $activeMenu = 'dieuchuyen';
 
@@ -150,6 +156,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         if ($tu_cuahang_id === $den_cuahang_id) {
             throw new Exception('Kho nhận phải khác Kho xuất!');
+        }
+
+        $chkNv = $pdo->prepare("SELECT COUNT(*) FROM nhanvien WHERE id = ? AND cuahang_id = ? AND LOWER(chuc_vu) LIKE '%kho%'");
+        $chkNv->execute([$nguoi_chuyen, $tu_cuahang_id]);
+        if ((int)$chkNv->fetchColumn() === 0) {
+            throw new Exception('Người chuyển phải là nhân viên kho của kho xuất!');
         }
 
         $pdo->beginTransaction();
@@ -359,7 +371,7 @@ require ROOT_PATH . '/includes/header.php';
                         $tenNvThucHien = $nvData ? $nvData['ho_ten'] : 'Nhân viên';
                         $idNvThucHien = $nvData ? $nvData['id'] : 0;
                     ?>
-                    <select class="form-select" name="nguoi_chuyen" required readonly style="pointer-events: none; background-color: #f8fafc;">
+                    <select class="form-select" name="nguoi_chuyen" id="nguoiChuyenSelect" data-locked="1" required readonly style="pointer-events: none; background-color: #f8fafc;">
                         <option value="<?= $idNvThucHien ?>" selected><?= htmlspecialchars($tenNvThucHien) ?></option>
                     </select>
                 <?php else: ?>
@@ -652,6 +664,7 @@ function filterKhoNhan(khoXuatId) {
 
 function loadKhoXuatData(cuahangId) {
     const nvSelect = document.getElementById('nguoiChuyenSelect');
+    const nvLocked = nvSelect !== null && nvSelect.dataset.locked === '1';
     const tbody = document.getElementById('dsSanPhamInputs');
 
     tbody.innerHTML = '';
@@ -661,16 +674,16 @@ function loadKhoXuatData(cuahangId) {
     filterKhoNhan(cuahangId);
 
     if (!cuahangId) {
-        if (nvSelect) nvSelect.innerHTML = '<option value="">-- Chọn kho xuất trước --</option>';
+        if (nvSelect && !nvLocked) nvSelect.innerHTML = '<option value="">-- Chọn kho xuất trước --</option>';
         return;
     }
 
-    if (nvSelect) nvSelect.innerHTML = '<option value="">-- Đang tải... --</option>';
+    if (nvSelect && !nvLocked) nvSelect.innerHTML = '<option value="">-- Đang tải... --</option>';
 
     fetch('index.php?ajax=get_data_xuat&cuahang_id=' + cuahangId)
         .then(response => response.json())
         .then(data => {
-            if (nvSelect) {
+            if (nvSelect && !nvLocked) {
                 if (data.nhanvien.length === 0) {
                     nvSelect.innerHTML = '<option value="">-- Kho không có nhân viên --</option>';
                 } else {
@@ -690,7 +703,7 @@ function loadKhoXuatData(cuahangId) {
             }
         })
         .catch(error => {
-            if (nvSelect) nvSelect.innerHTML = '<option value="">-- Lỗi dữ liệu --</option>';
+            if (nvSelect && !nvLocked) nvSelect.innerHTML = '<option value="">-- Lỗi dữ liệu --</option>';
             console.error(error);
         });
 }
